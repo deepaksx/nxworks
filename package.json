@@ -1,0 +1,16 @@
+{
+  "name": "rawabi-workshop-app",
+  "version": "1.0.0",
+  "description": "Al Rawabi S/4HANA Pre-Discovery Workshop Application",
+  "scripts": {
+    "install:all": "cd client && npm install && cd ../server && npm install",
+    "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm run dev\"",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm start",
+    "db:init": "cd server && npm run db:init",
+    "db:seed": "cd server && npm run db:seed"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
