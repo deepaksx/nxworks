@@ -27,16 +27,12 @@ export const getAnswer = (answerId) => api.get(`/answers/${answerId}`);
 export const bulkUpdateStatus = (questionIds, status) =>
   api.post('/answers/bulk-status', { question_ids: questionIds, status });
 
-// File uploads
+// File uploads - use plain axios to avoid default JSON content-type
 export const uploadAudio = (answerId, formData) =>
-  api.post(`/answers/${answerId}/audio`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  });
+  axios.post(`/api/answers/${answerId}/audio`, formData);
 
 export const uploadDocument = (answerId, formData) =>
-  api.post(`/answers/${answerId}/document`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  });
+  axios.post(`/api/answers/${answerId}/document`, formData);
 
 export const deleteAudio = (audioId) => api.delete(`/answers/audio/${audioId}`);
 export const deleteDocument = (docId) => api.delete(`/answers/document/${docId}`);
