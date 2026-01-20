@@ -53,7 +53,9 @@ app.get('/api/health', (req, res) => {
       NODE_ENV: process.env.NODE_ENV || 'not set',
       DATABASE_URL: process.env.DATABASE_URL ? 'configured' : 'missing',
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing',
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY ? 'configured' : 'missing'
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY ? 'configured' : 'missing',
+      AWS_S3: (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY && process.env.AWS_S3_BUCKET) ? 'configured' : 'missing',
+      AWS_S3_BUCKET: process.env.AWS_S3_BUCKET || 'not set'
     }
   });
 });

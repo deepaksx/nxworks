@@ -5,9 +5,10 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../models/db');
+const { isS3Configured, uploadBufferToS3, deleteFromS3, getS3Url, extractKeyFromPath } = require('../services/s3');
 
 // Configure multer for file uploads
-// Use /tmp in production (Render) since filesystem is read-only
+// Use memory storage when S3 is configured, disk storage otherwise
 const getUploadBase = () => {
   if (process.env.NODE_ENV === 'production') {
     return '/tmp/uploads';
@@ -15,7 +16,8 @@ const getUploadBase = () => {
   return path.join(__dirname, '../../uploads');
 };
 
-const storage = multer.diskStorage({
+// Disk storage for local/fallback
+const diskStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     let uploadDir = getUploadBase();
 
@@ -42,8 +44,21 @@ const storage = multer.diskStorage({
   }
 });
 
+// Memory storage for S3 uploads
+const memoryStorage = multer.memoryStorage();
+
+// Use memory storage if S3 is configured, otherwise disk storage
+const getStorage = () => {
+  if (isS3Configured()) {
+    console.log('Using S3 storage for uploads');
+    return memoryStorage;
+  }
+  console.log('Using disk storage for uploads');
+  return diskStorage;
+};
+
 const upload = multer({
-  storage,
+  storage: getStorage(),
   limits: {
     fileSize: 50 * 1024 * 1024 // 50MB limit
   },
@@ -117,8 +132,9 @@ router.post('/question/:questionId', async (req, res) => {
 router.post('/:answerId/audio', upload.single('audio'), async (req, res) => {
   console.log('Audio upload request received:', {
     answerId: req.params.answerId,
-    file: req.file ? { name: req.file.filename, size: req.file.size, mime: req.file.mimetype } : 'NO FILE',
-    body: req.body
+    file: req.file ? { name: req.file.originalname, size: req.file.size, mime: req.file.mimetype } : 'NO FILE',
+    body: req.body,
+    s3Configured: isS3Configured()
   });
 
   try {
@@ -130,30 +146,54 @@ router.post('/:answerId/audio', upload.single('audio'), async (req, res) => {
       return res.status(400).json({ error: 'No audio file provided' });
     }
 
-    // Store relative URL path (always uploads/audio/filename for serving)
-    const relativePath = `uploads/audio/${req.file.filename}`;
+    let filePath;
+    let fileName;
 
-    console.log('Audio file saved:', {
-      actualPath: req.file.path,
-      relativePath,
-      size: req.file.size
-    });
+    if (isS3Configured() && req.file.buffer) {
+      // Upload to S3
+      const uniqueName = `${uuidv4()}-${Date.now()}${path.extname(req.file.originalname)}`;
+      const s3Key = `uploads/audio/${uniqueName}`;
+
+      console.log('Uploading audio to S3:', s3Key);
+      const s3Result = await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
+
+      filePath = s3Result.location;
+      fileName = uniqueName;
+
+      console.log('Audio uploaded to S3:', s3Result);
+    } else {
+      // Local storage
+      filePath = `uploads/audio/${req.file.filename}`;
+      fileName = req.file.filename;
+
+      console.log('Audio file saved locally:', {
+        actualPath: req.file.path,
+        relativePath: filePath,
+        size: req.file.size
+      });
+    }
 
     const result = await db.query(`
       INSERT INTO audio_recordings (answer_id, file_path, file_name, mime_type, file_size, duration_seconds)
       VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
-    `, [answerId, relativePath, req.file.filename, req.file.mimetype, req.file.size, duration_seconds || null]);
+    `, [answerId, filePath, fileName, req.file.mimetype, req.file.size, duration_seconds || null]);
 
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error uploading audio:', error);
-    res.status(500).json({ error: 'Failed to upload audio' });
+    res.status(500).json({ error: 'Failed to upload audio: ' + error.message });
   }
 });
 
 // Upload document for an answer
 router.post('/:answerId/document', upload.single('document'), async (req, res) => {
+  console.log('Document upload request received:', {
+    answerId: req.params.answerId,
+    file: req.file ? { name: req.file.originalname, size: req.file.size, mime: req.file.mimetype } : 'NO FILE',
+    s3Configured: isS3Configured()
+  });
+
   try {
     const { answerId } = req.params;
     const { description } = req.body;
@@ -162,19 +202,37 @@ router.post('/:answerId/document', upload.single('document'), async (req, res) =
       return res.status(400).json({ error: 'No document provided' });
     }
 
-    // Use forward slashes for URL compatibility
-    const relativePath = `uploads/documents/${req.file.filename}`;
+    let filePath;
+    let fileName;
+
+    if (isS3Configured() && req.file.buffer) {
+      // Upload to S3
+      const uniqueName = `${uuidv4()}-${Date.now()}${path.extname(req.file.originalname)}`;
+      const s3Key = `uploads/documents/${uniqueName}`;
+
+      console.log('Uploading document to S3:', s3Key);
+      const s3Result = await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
+
+      filePath = s3Result.location;
+      fileName = uniqueName;
+
+      console.log('Document uploaded to S3:', s3Result);
+    } else {
+      // Local storage
+      filePath = `uploads/documents/${req.file.filename}`;
+      fileName = req.file.filename;
+    }
 
     const result = await db.query(`
       INSERT INTO documents (answer_id, file_path, file_name, original_name, mime_type, file_size, description)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
-    `, [answerId, relativePath, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, description || null]);
+    `, [answerId, filePath, fileName, req.file.originalname, req.file.mimetype, req.file.size, description || null]);
 
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error uploading document:', error);
-    res.status(500).json({ error: 'Failed to upload document' });
+    res.status(500).json({ error: 'Failed to upload document: ' + error.message });
   }
 });
 
@@ -190,17 +248,27 @@ router.delete('/audio/:audioId', async (req, res) => {
       return res.status(404).json({ error: 'Audio recording not found' });
     }
 
+    const { file_path, file_name } = audioResult.rows[0];
+
     // Delete from database
     await db.query('DELETE FROM audio_recordings WHERE id = $1', [audioId]);
 
-    // Delete file from filesystem
-    const fileName = audioResult.rows[0].file_name;
-    const filePath = process.env.NODE_ENV === 'production'
-      ? `/tmp/uploads/audio/${fileName}`
-      : path.join(__dirname, '../../uploads/audio', fileName);
+    // Delete file from storage
+    if (file_path.startsWith('http')) {
+      // S3 URL - delete from S3
+      const s3Key = extractKeyFromPath(file_path);
+      await deleteFromS3(s3Key);
+      console.log('Deleted audio from S3:', s3Key);
+    } else {
+      // Local file
+      const localPath = process.env.NODE_ENV === 'production'
+        ? `/tmp/uploads/audio/${file_name}`
+        : path.join(__dirname, '../../uploads/audio', file_name);
 
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+      if (fs.existsSync(localPath)) {
+        fs.unlinkSync(localPath);
+        console.log('Deleted local audio file:', localPath);
+      }
     }
 
     res.json({ success: true });
@@ -222,17 +290,27 @@ router.delete('/document/:docId', async (req, res) => {
       return res.status(404).json({ error: 'Document not found' });
     }
 
+    const { file_path, file_name } = docResult.rows[0];
+
     // Delete from database
     await db.query('DELETE FROM documents WHERE id = $1', [docId]);
 
-    // Delete file from filesystem
-    const fileName = docResult.rows[0].file_name;
-    const filePath = process.env.NODE_ENV === 'production'
-      ? `/tmp/uploads/documents/${fileName}`
-      : path.join(__dirname, '../../uploads/documents', fileName);
+    // Delete file from storage
+    if (file_path.startsWith('http')) {
+      // S3 URL - delete from S3
+      const s3Key = extractKeyFromPath(file_path);
+      await deleteFromS3(s3Key);
+      console.log('Deleted document from S3:', s3Key);
+    } else {
+      // Local file
+      const localPath = process.env.NODE_ENV === 'production'
+        ? `/tmp/uploads/documents/${file_name}`
+        : path.join(__dirname, '../../uploads/documents', file_name);
 
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+      if (fs.existsSync(localPath)) {
+        fs.unlinkSync(localPath);
+        console.log('Deleted local document file:', localPath);
+      }
     }
 
     res.json({ success: true });
@@ -288,21 +366,31 @@ router.delete('/question/:questionId/reset', async (req, res) => {
 
     const answerId = answerResult.rows[0].id;
 
-    // Get all audio files to delete from filesystem
-    const audioFiles = await db.query('SELECT file_path FROM audio_recordings WHERE answer_id = $1', [answerId]);
+    // Get all audio files to delete
+    const audioFiles = await db.query('SELECT file_path, file_name FROM audio_recordings WHERE answer_id = $1', [answerId]);
     for (const audio of audioFiles.rows) {
-      const filePath = path.join(__dirname, '../..', audio.file_path);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      if (audio.file_path.startsWith('http')) {
+        const s3Key = extractKeyFromPath(audio.file_path);
+        await deleteFromS3(s3Key);
+      } else {
+        const filePath = path.join(__dirname, '../..', audio.file_path);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
       }
     }
 
-    // Get all document files to delete from filesystem
-    const docFiles = await db.query('SELECT file_path FROM documents WHERE answer_id = $1', [answerId]);
+    // Get all document files to delete
+    const docFiles = await db.query('SELECT file_path, file_name FROM documents WHERE answer_id = $1', [answerId]);
     for (const doc of docFiles.rows) {
-      const filePath = path.join(__dirname, '../..', doc.file_path);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      if (doc.file_path.startsWith('http')) {
+        const s3Key = extractKeyFromPath(doc.file_path);
+        await deleteFromS3(s3Key);
+      } else {
+        const filePath = path.join(__dirname, '../..', doc.file_path);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
       }
     }
 
