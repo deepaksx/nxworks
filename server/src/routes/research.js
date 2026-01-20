@@ -2,7 +2,14 @@ const express = require('express');
 const router = express.Router();
 const Anthropic = require('@anthropic-ai/sdk');
 
-const anthropic = new Anthropic();
+// Lazy initialization
+let anthropic = null;
+const getAnthropic = () => {
+  if (!anthropic && process.env.ANTHROPIC_API_KEY) {
+    anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return anthropic;
+};
 
 // Research a client website
 router.post('/website', async (req, res) => {
@@ -13,10 +20,15 @@ router.post('/website', async (req, res) => {
       return res.status(400).json({ error: 'Website URL is required' });
     }
 
+    const client = getAnthropic();
+    if (!client) {
+      return res.status(503).json({ error: 'Research service not configured. ANTHROPIC_API_KEY is required.' });
+    }
+
     console.log(`Researching client: ${clientName} at ${url}`);
 
     // Use Claude to research the company
-    const response = await anthropic.messages.create({
+    const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4000,
       messages: [
