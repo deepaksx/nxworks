@@ -1,18 +1,24 @@
+databases:
+  - name: nxworks-db
+    databaseName: nxworks
+    user: nxworks
+    plan: free
+    region: frankfurt
+
 services:
   - type: web
-    name: rawabi-workshop
-    env: node
-    buildCommand: cd client && npm install && npm run build && cd ../server && npm install
-    startCommand: cd server && npm start
+    name: nxworks
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: cd client && npm install && npm run build && cd ../server && npm install && npm run db:init
+    startCommand: cd server && node src/index.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
         fromDatabase:
-          name: rawabi-workshop-db
+          name: nxworks-db
           property: connectionString
-
-databases:
-  - name: rawabi-workshop-db
-    plan: free
-    databaseName: rawabi_workshop
+      - key: ANTHROPIC_API_KEY
+        sync: false
