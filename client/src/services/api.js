@@ -36,6 +36,14 @@ export const uploadDocument = (answerId, formData) =>
 
 export const deleteAudio = (audioId) => api.delete(`/answers/audio/${audioId}`);
 export const deleteDocument = (docId) => api.delete(`/answers/document/${docId}`);
+export const resetQuestionData = (questionId) => api.delete(`/answers/question/${questionId}/reset`);
+export const transcribeAudio = (audioId) => api.post(`/transcribe/${audioId}`);
+export const createObservation = (questionId) => api.post(`/observation/question/${questionId}`);
+export const createInitialChecklist = (questionId, force = false) =>
+  api.post(`/observation/question/${questionId}/initial${force ? '?force=true' : ''}`);
+export const getObservation = (questionId) => api.get(`/observation/question/${questionId}`);
+export const getAllObservations = (questionId) => api.get(`/observation/question/${questionId}/all`);
+export const getSessionObservations = (sessionId) => api.get(`/observation/session/${sessionId}/all`);
 
 // Participants
 export const getParticipants = (sessionId) => api.get(`/participants/session/${sessionId}`);
@@ -46,5 +54,15 @@ export const updateParticipant = (id, data) => api.patch(`/participants/${id}`, 
 export const deleteParticipant = (id) => api.delete(`/participants/${id}`);
 export const toggleParticipantPresence = (id, is_present) =>
   api.patch(`/participants/${id}/presence`, { is_present });
+
+// Reports
+export const getSessionReportStatus = (sessionId) => api.get(`/reports/session/${sessionId}/status`);
+export const getSessionReports = (sessionId) => api.get(`/reports/session/${sessionId}`);
+export const getReport = (reportId) => api.get(`/reports/${reportId}`);
+export const generateReport = (sessionId) => api.post(`/reports/session/${sessionId}/generate`);
+export const updateReportStatus = (reportId, status) => api.patch(`/reports/${reportId}/status`, { status });
+export const deleteReport = (reportId) => api.delete(`/reports/${reportId}`);
+export const exportReportPDF = (reportId) => `/api/reports/${reportId}/export/pdf`;
+export const exportSessionPDF = (sessionId) => `/api/reports/session/${sessionId}/export/pdf`;
 
 export default api;

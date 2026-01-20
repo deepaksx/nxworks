@@ -28,31 +28,29 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    const sessionResult = await db.query('SELECT * FROM sessions WHERE id = $1', [id]);
+    const sessionResult = await db.query(`
+      SELECT s.*, w.name as workshop_name
+      FROM sessions s
+      LEFT JOIN workshops w ON s.workshop_id = w.id
+      WHERE s.id = $1
+    `, [id]);
+
     if (sessionResult.rows.length === 0) {
       return res.status(404).json({ error: 'Session not found' });
     }
 
+    // Get entities for this session's workshop
+    const session = sessionResult.rows[0];
     const entitiesResult = await db.query(`
-      SELECT DISTINCT e.*
+      SELECT e.*
       FROM entities e
-      JOIN questions q ON e.id = q.entity_id
-      WHERE q.session_id = $1
+      WHERE e.workshop_id = $1
       ORDER BY e.id
-    `, [id]);
-
-    const categoriesResult = await db.query(`
-      SELECT DISTINCT c.*, e.code as entity_code
-      FROM categories c
-      JOIN entities e ON c.entity_id = e.id
-      WHERE c.session_id = $1
-      ORDER BY c.entity_id, c.sort_order
-    `, [id]);
+    `, [session.workshop_id]);
 
     res.json({
-      ...sessionResult.rows[0],
-      entities: entitiesResult.rows,
-      categories: categoriesResult.rows
+      ...session,
+      entities: entitiesResult.rows
     });
   } catch (error) {
     console.error('Error fetching session:', error);
@@ -87,7 +85,8 @@ router.get('/:id/progress', async (req, res) => {
   try {
     const { id } = req.params;
 
-    const progressResult = await db.query(`
+    // Get progress by entity
+    const entityProgressResult = await db.query(`
       SELECT
         e.id as entity_id,
         e.code as entity_code,
@@ -102,7 +101,54 @@ router.get('/:id/progress', async (req, res) => {
       ORDER BY e.id
     `, [id]);
 
-    res.json(progressResult.rows);
+    // Get count of questions without entity (general questions)
+    const generalProgressResult = await db.query(`
+      SELECT
+        COUNT(q.id) as total_questions,
+        COUNT(CASE WHEN a.status = 'completed' THEN 1 END) as answered_questions,
+        COUNT(CASE WHEN a.status = 'in_progress' THEN 1 END) as in_progress_questions
+      FROM questions q
+      LEFT JOIN answers a ON q.id = a.question_id
+      WHERE q.session_id = $1 AND q.entity_id IS NULL
+    `, [id]);
+
+    // Get total count for "All" tab
+    const totalProgressResult = await db.query(`
+      SELECT
+        COUNT(q.id) as total_questions,
+        COUNT(CASE WHEN a.status = 'completed' THEN 1 END) as answered_questions,
+        COUNT(CASE WHEN a.status = 'in_progress' THEN 1 END) as in_progress_questions
+      FROM questions q
+      LEFT JOIN answers a ON q.id = a.question_id
+      WHERE q.session_id = $1
+    `, [id]);
+
+    const result = [...entityProgressResult.rows];
+
+    // Add general questions if any exist
+    const generalCount = parseInt(generalProgressResult.rows[0].total_questions) || 0;
+    if (generalCount > 0) {
+      result.push({
+        entity_id: null,
+        entity_code: 'General',
+        entity_name: 'General Questions',
+        total_questions: generalCount,
+        answered_questions: parseInt(generalProgressResult.rows[0].answered_questions) || 0,
+        in_progress_questions: parseInt(generalProgressResult.rows[0].in_progress_questions) || 0
+      });
+    }
+
+    // Add total summary
+    const totalSummary = {
+      total_questions: parseInt(totalProgressResult.rows[0].total_questions) || 0,
+      answered_questions: parseInt(totalProgressResult.rows[0].answered_questions) || 0,
+      in_progress_questions: parseInt(totalProgressResult.rows[0].in_progress_questions) || 0
+    };
+
+    res.json({
+      entities: result,
+      summary: totalSummary
+    });
   } catch (error) {
     console.error('Error fetching progress:', error);
     res.status(500).json({ error: 'Failed to fetch progress' });

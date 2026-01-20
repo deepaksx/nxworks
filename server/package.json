@@ -7,15 +7,23 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "db:init": "node src/scripts/initDb.js",
-    "db:seed": "node src/scripts/seedQuestions.js"
+    "db:seed": "node src/scripts/seedQuestions.js",
+    "db:migrate:admin": "node src/scripts/migrateAdmin.js",
+    "db:migrate:admin-v2": "node src/scripts/migrateAdminV2.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "mammoth": "^1.11.0",
     "multer": "^1.4.5-lts.1",
+    "openai": "^6.16.0",
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.17.2",
     "pg": "^8.11.3",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

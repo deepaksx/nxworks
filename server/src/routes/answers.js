@@ -58,6 +58,8 @@ const upload = multer({
 
 // Create or update answer for a question
 router.post('/question/:questionId', async (req, res) => {
+  console.log('Save answer request:', { questionId: req.params.questionId, body: req.body });
+
   try {
     const { questionId } = req.params;
     const { text_response, respondent_name, respondent_role, notes, status } = req.body;
@@ -100,11 +102,18 @@ router.post('/question/:questionId', async (req, res) => {
 
 // Upload audio recording for an answer
 router.post('/:answerId/audio', upload.single('audio'), async (req, res) => {
+  console.log('Audio upload request received:', {
+    answerId: req.params.answerId,
+    file: req.file ? { name: req.file.filename, size: req.file.size, mime: req.file.mimetype } : 'NO FILE',
+    body: req.body
+  });
+
   try {
     const { answerId } = req.params;
     const { duration_seconds } = req.body;
 
     if (!req.file) {
+      console.log('No file in request!');
       return res.status(400).json({ error: 'No audio file provided' });
     }
 
@@ -235,6 +244,57 @@ router.get('/:answerId', async (req, res) => {
   } catch (error) {
     console.error('Error fetching answer:', error);
     res.status(500).json({ error: 'Failed to fetch answer' });
+  }
+});
+
+// Reset/delete all data for a question (for testing)
+router.delete('/question/:questionId/reset', async (req, res) => {
+  try {
+    const { questionId } = req.params;
+
+    // Get answer ID first
+    const answerResult = await db.query('SELECT id FROM answers WHERE question_id = $1', [questionId]);
+
+    if (answerResult.rows.length === 0) {
+      return res.json({ success: true, message: 'No data to reset' });
+    }
+
+    const answerId = answerResult.rows[0].id;
+
+    // Get all audio files to delete from filesystem
+    const audioFiles = await db.query('SELECT file_path FROM audio_recordings WHERE answer_id = $1', [answerId]);
+    for (const audio of audioFiles.rows) {
+      const filePath = path.join(__dirname, '../..', audio.file_path);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
+
+    // Get all document files to delete from filesystem
+    const docFiles = await db.query('SELECT file_path FROM documents WHERE answer_id = $1', [answerId]);
+    for (const doc of docFiles.rows) {
+      const filePath = path.join(__dirname, '../..', doc.file_path);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
+
+    // Delete observations
+    await db.query('DELETE FROM observations WHERE answer_id = $1', [answerId]);
+
+    // Delete audio recordings
+    await db.query('DELETE FROM audio_recordings WHERE answer_id = $1', [answerId]);
+
+    // Delete documents
+    await db.query('DELETE FROM documents WHERE answer_id = $1', [answerId]);
+
+    // Delete answer
+    await db.query('DELETE FROM answers WHERE id = $1', [answerId]);
+
+    res.json({ success: true, message: 'All question data reset successfully' });
+  } catch (error) {
+    console.error('Error resetting question data:', error);
+    res.status(500).json({ error: 'Failed to reset question data' });
   }
 });
 

@@ -87,9 +87,9 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-rawabi-50">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-nxsys-50">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-rawabi-600 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-nxsys-500 rounded-lg flex items-center justify-center">
               <Users className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -109,7 +109,7 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
         <div className="p-6 overflow-y-auto max-h-[60vh]">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rawabi-600"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-nxsys-500"></div>
             </div>
           ) : (
             <>
@@ -125,8 +125,8 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
                       className="flex items-center justify-between p-4 bg-gray-50 rounded-xl"
                     >
                       <div className="flex items-center space-x-4">
-                        <div className="w-10 h-10 bg-rawabi-100 rounded-full flex items-center justify-center">
-                          <User className="w-5 h-5 text-rawabi-600" />
+                        <div className="w-10 h-10 bg-nxsys-100 rounded-full flex items-center justify-center">
+                          <User className="w-5 h-5 text-nxsys-600" />
                         </div>
                         <div>
                           <p className="font-medium text-gray-900">{participant.name}</p>
@@ -165,8 +165,8 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
 
               {/* Add Participant Form */}
               {showForm ? (
-                <form onSubmit={handleAddParticipant} className="border-2 border-dashed border-rawabi-200 rounded-xl p-4 bg-rawabi-50">
-                  <p className="text-sm font-medium text-rawabi-700 mb-4">Add New Participant</p>
+                <form onSubmit={handleAddParticipant} className="border-2 border-dashed border-nxsys-200 rounded-xl p-4 bg-nxsys-50">
+                  <p className="text-sm font-medium text-nxsys-700 mb-4">Add New Participant</p>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -180,7 +180,7 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
                         onChange={(e) => setNewName(e.target.value)}
                         placeholder="Full name"
                         required
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-rawabi-500 focus:border-rawabi-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-nxsys-500 focus:border-nxsys-500"
                       />
                     </div>
                     <div>
@@ -194,7 +194,7 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
                         onChange={(e) => setNewRole(e.target.value)}
                         placeholder="e.g., Finance Manager"
                         required
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-rawabi-500 focus:border-rawabi-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-nxsys-500 focus:border-nxsys-500"
                       />
                     </div>
                     <div>
@@ -207,7 +207,7 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
                         value={newCompany}
                         onChange={(e) => setNewCompany(e.target.value)}
                         placeholder="Company name"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-rawabi-500 focus:border-rawabi-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-nxsys-500 focus:border-nxsys-500"
                       />
                     </div>
                     <div>
@@ -220,7 +220,7 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
                         value={newEmail}
                         onChange={(e) => setNewEmail(e.target.value)}
                         placeholder="email@company.com"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-rawabi-500 focus:border-rawabi-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-nxsys-500 focus:border-nxsys-500"
                       />
                     </div>
                   </div>
@@ -236,7 +236,7 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
                     <button
                       type="submit"
                       disabled={adding || !newName.trim() || !newRole.trim()}
-                      className="flex items-center px-4 py-2 bg-rawabi-600 text-white rounded-lg hover:bg-rawabi-700 transition-colors disabled:opacity-50"
+                      className="flex items-center px-4 py-2 bg-nxsys-500 text-white rounded-lg hover:bg-nxsys-600 transition-colors disabled:opacity-50"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       {adding ? 'Adding...' : 'Add Participant'}
@@ -246,7 +246,7 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
               ) : (
                 <button
                   onClick={() => setShowForm(true)}
-                  className="w-full flex items-center justify-center px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-600 hover:border-rawabi-500 hover:text-rawabi-600 transition-colors"
+                  className="w-full flex items-center justify-center px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-600 hover:border-nxsys-500 hover:text-nxsys-600 transition-colors"
                 >
                   <UserPlus className="w-5 h-5 mr-2" />
                   Add Participant
@@ -273,7 +273,7 @@ function ParticipantsModal({ sessionId, sessionName, onClose, onStartSession }) 
             <button
               onClick={handleStartSession}
               disabled={participants.length === 0}
-              className="flex items-center px-6 py-2 bg-rawabi-600 text-white rounded-lg hover:bg-rawabi-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center px-6 py-2 bg-nxsys-500 text-white rounded-lg hover:bg-nxsys-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Check className="w-4 h-4 mr-2" />
               Start Session

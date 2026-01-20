@@ -1,41 +1,46 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getSession, getQuestions, getSessionProgress, updateSessionStatus, getParticipants } from '../services/api';
+import { getSession, getQuestions, getSessionProgress, updateSessionStatus, getParticipants, getSessionReportStatus, generateReport } from '../services/api';
 import ParticipantsModal from '../components/ParticipantsModal';
 import {
   ChevronLeft,
   CheckCircle,
   Circle,
   AlertTriangle,
-  Filter,
   Search,
   PlayCircle,
   Clock,
-  FileText,
   Mic,
   Paperclip,
   Users,
-  UserPlus
+  FileText,
+  Loader2,
+  Sparkles,
+  Download,
+  Eye
 } from 'lucide-react';
 
 const entityColors = {
   ARDC: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-800' },
   ENF: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', badge: 'bg-amber-100 text-amber-800' },
-  GF: { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', badge: 'bg-green-100 text-green-800' }
+  GF: { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', badge: 'bg-green-100 text-green-800' },
+  General: { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-700', badge: 'bg-gray-100 text-gray-600' }
 };
 
 function SessionView() {
-  const { sessionId } = useParams();
+  const { workshopId, sessionId } = useParams();
   const navigate = useNavigate();
   const [session, setSession] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [progress, setProgress] = useState([]);
   const [participants, setParticipants] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedEntity, setSelectedEntity] = useState(null);
+  const [selectedEntity, setSelectedEntity] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showParticipantsModal, setShowParticipantsModal] = useState(false);
+  const [reportStatus, setReportStatus] = useState(null);
+  const [generatingReport, setGeneratingReport] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -43,28 +48,28 @@ function SessionView() {
 
   const loadData = async () => {
     try {
-      const [sessionRes, progressRes, participantsRes] = await Promise.all([
+      const [sessionRes, progressRes, participantsRes, reportStatusRes] = await Promise.all([
         getSession(sessionId),
         getSessionProgress(sessionId),
-        getParticipants(sessionId)
+        getParticipants(sessionId),
+        getSessionReportStatus(sessionId)
       ]);
       setSession(sessionRes.data);
-      setProgress(progressRes.data);
+      // Handle new progress response structure
+      const progressData = progressRes.data.entities || progressRes.data;
+      setProgress(progressData);
       setParticipants(participantsRes.data);
+      setReportStatus(reportStatusRes.data);
 
-      // Load all questions for the session
       const questionsRes = await getQuestions({ session_id: sessionId, limit: 300 });
       setQuestions(questionsRes.data.questions);
 
-      // Auto-select first entity
-      if (progressRes.data.length > 0 && !selectedEntity) {
-        setSelectedEntity(progressRes.data[0].entity_id);
-      }
+      // Keep "all" as default - don't auto-select first entity
 
-      // Show participants modal if session not started and no participants
-      if (sessionRes.data.status === 'not_started' && participantsRes.data.length === 0) {
-        setShowParticipantsModal(true);
-      }
+      // Auto-start session if not started (removed participants requirement)
+      // if (sessionRes.data.status === 'not_started' && participantsRes.data.length === 0) {
+      //   setShowParticipantsModal(true);
+      // }
     } catch (error) {
       console.error('Failed to load session:', error);
     } finally {
@@ -84,49 +89,63 @@ function SessionView() {
   const handleStartSession = async (updatedParticipants) => {
     setParticipants(updatedParticipants);
     setShowParticipantsModal(false);
-    // Update session status to in_progress
     await handleStatusChange('in_progress');
   };
 
-  const filteredQuestions = questions.filter((q) => {
-    if (selectedEntity && q.entity_id !== selectedEntity) return false;
-    if (searchTerm && !q.question_text.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    if (statusFilter === 'answered' && q.answer_status !== 'completed') return false;
-    if (statusFilter === 'pending' && q.answer_status === 'completed') return false;
-    if (statusFilter === 'critical' && !q.is_critical) return false;
-    return true;
-  });
+  const handleGenerateReport = async () => {
+    setGeneratingReport(true);
+    try {
+      const response = await generateReport(sessionId);
+      if (response.data.success) {
+        navigate(`/workshop/${workshopId}/session/${sessionId}/report/${response.data.report.id}`);
+      }
+    } catch (error) {
+      console.error('Failed to generate report:', error);
+      alert('Failed to generate report: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
 
-  // Group questions by category
-  const questionsByCategory = filteredQuestions.reduce((acc, q) => {
-    const cat = q.category_name || 'Uncategorized';
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(q);
-    return acc;
-  }, {});
+  const filteredQuestions = questions
+    .filter((q) => {
+      // Filter by entity: 'all' shows everything, null shows general questions, otherwise filter by entity_id
+      if (selectedEntity !== 'all') {
+        if (selectedEntity === null) {
+          // Show only general questions (no entity)
+          if (q.entity_id !== null) return false;
+        } else {
+          // Show only questions for selected entity
+          if (q.entity_id !== selectedEntity) return false;
+        }
+      }
+      if (searchTerm && !q.question_text.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+      if (statusFilter === 'answered' && q.answer_status !== 'completed') return false;
+      if (statusFilter === 'pending' && q.answer_status === 'completed') return false;
+      if (statusFilter === 'critical' && !q.is_critical) return false;
+      return true;
+    })
+    .sort((a, b) => a.question_number - b.question_number); // Strict sequential order
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-rawabi-600"></div>
+      <div className="flex items-center justify-center min-h-[200px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-nxsys-500"></div>
       </div>
     );
   }
 
   if (!session) {
     return (
-      <div className="text-center py-12">
+      <div className="text-center py-8">
         <p className="text-gray-500">Session not found</p>
-        <Link to="/" className="text-rawabi-600 hover:underline mt-2 inline-block">
-          Back to Dashboard
-        </Link>
+        <Link to={`/workshop/${workshopId}`} className="text-nxsys-500 hover:underline mt-2 inline-block">Back to Workshop</Link>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Participants Modal */}
+    <div className="space-y-3">
       {showParticipantsModal && (
         <ParticipantsModal
           sessionId={sessionId}
@@ -136,40 +155,27 @@ function SessionView() {
         />
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Link to="/" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+      {/* Compact Header */}
+      <div className="flex items-center justify-between bg-white rounded-lg p-3 shadow-sm border border-gray-100">
+        <div className="flex items-center space-x-3">
+          <Link to={`/workshop/${workshopId}`} className="p-1 hover:bg-gray-100 rounded transition-colors">
             <ChevronLeft className="w-5 h-5 text-gray-600" />
           </Link>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="text-2xl font-bold text-rawabi-600">Session {session.session_number}</span>
-              <h1 className="text-2xl font-bold text-gray-900">{session.name}</h1>
-            </div>
-            <p className="text-sm text-gray-500 mt-1">{session.description}</p>
-          </div>
+          <span className="text-lg font-bold text-nxsys-500">S{session.session_number}</span>
+          <h1 className="font-semibold text-gray-900">{session.name}</h1>
         </div>
-
-        <div className="flex items-center space-x-3">
-          {/* Participants Button */}
+        <div className="flex items-center space-x-2">
           <button
             onClick={() => setShowParticipantsModal(true)}
-            className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+            className="flex items-center px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
           >
-            <Users className="w-4 h-4 mr-2 text-gray-600" />
-            <span className="text-gray-700">Participants</span>
-            {participants.length > 0 && (
-              <span className="ml-2 px-2 py-0.5 bg-rawabi-100 text-rawabi-700 rounded-full text-xs font-medium">
-                {participants.length}
-              </span>
-            )}
+            <Users className="w-4 h-4 mr-1 text-gray-600" />
+            {participants.length}
           </button>
-
           <select
             value={session.status}
             onChange={(e) => handleStatusChange(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-rawabi-500 focus:border-rawabi-500"
+            className="px-2 py-1 border border-gray-300 rounded text-sm"
           >
             <option value="not_started">Not Started</option>
             <option value="in_progress">In Progress</option>
@@ -178,219 +184,223 @@ function SessionView() {
         </div>
       </div>
 
-      {/* Participants Banner (if no participants) */}
-      {participants.length === 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <UserPlus className="w-5 h-5 text-amber-600" />
-            <div>
-              <p className="font-medium text-amber-800">No participants added</p>
-              <p className="text-sm text-amber-600">Add participants to track who is responding to questions</p>
-            </div>
-          </div>
+      {/* Entity Tabs + Filters */}
+      <div className="flex items-center justify-between bg-white rounded-lg p-2 shadow-sm border border-gray-100">
+        <div className="flex items-center space-x-1">
+          {/* All tab first */}
           <button
-            onClick={() => setShowParticipantsModal(true)}
-            className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm"
-          >
-            Add Participants
-          </button>
-        </div>
-      )}
-
-      {/* Participants Summary (if has participants) */}
-      {participants.length > 0 && (
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Users className="w-5 h-5 text-rawabi-600" />
-              <span className="text-sm font-medium text-gray-700">Session Participants:</span>
-              <div className="flex items-center space-x-2">
-                {participants.slice(0, 5).map((p) => (
-                  <span
-                    key={p.id}
-                    className="px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700"
-                    title={p.role}
-                  >
-                    {p.name}
-                  </span>
-                ))}
-                {participants.length > 5 && (
-                  <span className="text-sm text-gray-500">+{participants.length - 5} more</span>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={() => setShowParticipantsModal(true)}
-              className="text-sm text-rawabi-600 hover:underline"
-            >
-              Manage
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Entity Progress Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {progress.map((entity) => {
-          const colors = entityColors[entity.entity_code] || entityColors.ARDC;
-          const percentage = entity.total_questions > 0
-            ? Math.round((entity.answered_questions / entity.total_questions) * 100)
-            : 0;
-          const isSelected = selectedEntity === entity.entity_id;
-
-          return (
-            <button
-              key={entity.entity_id}
-              onClick={() => setSelectedEntity(entity.entity_id)}
-              className={`p-4 rounded-xl border-2 text-left transition-all ${
-                isSelected
-                  ? `${colors.bg} ${colors.border}`
-                  : 'bg-white border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className={`px-2 py-1 rounded text-xs font-bold ${colors.badge}`}>
-                  {entity.entity_code}
-                </span>
-                <span className={`text-lg font-bold ${isSelected ? colors.text : 'text-gray-700'}`}>
-                  {percentage}%
-                </span>
-              </div>
-              <p className="font-medium text-gray-900 text-sm">{entity.entity_name}</p>
-              <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${
-                    isSelected ? 'bg-rawabi-500' : 'bg-gray-400'
-                  }`}
-                  style={{ width: `${percentage}%` }}
-                />
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                {entity.answered_questions} / {entity.total_questions} answered
-              </p>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Filters */}
-      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search questions..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-rawabi-500 focus:border-rawabi-500"
-            />
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <Filter className="w-4 h-4 text-gray-400" />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-rawabi-500 focus:border-rawabi-500"
-            >
-              <option value="all">All Questions</option>
-              <option value="pending">Pending</option>
-              <option value="answered">Answered</option>
-              <option value="critical">Critical Only</option>
-            </select>
-          </div>
-
-          <button
-            onClick={() => setSelectedEntity(null)}
-            className={`px-3 py-2 rounded-lg text-sm transition-colors ${
-              !selectedEntity
-                ? 'bg-rawabi-100 text-rawabi-700'
-                : 'text-gray-600 hover:bg-gray-100'
+            onClick={() => setSelectedEntity('all')}
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              selectedEntity === 'all' ? 'bg-gray-200 text-gray-800' : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
-            Show All Entities
+            All ({questions.length})
           </button>
+          {/* Entity tabs */}
+          {progress.map((entity) => {
+            const colors = entityColors[entity.entity_code] || { badge: 'bg-gray-100 text-gray-800' };
+            const isSelected = selectedEntity === entity.entity_id;
+
+            return (
+              <button
+                key={entity.entity_id || 'general'}
+                onClick={() => setSelectedEntity(entity.entity_id)}
+                className={`px-3 py-1.5 rounded text-sm font-medium transition-all ${
+                  isSelected ? `${colors.badge}` : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {entity.entity_code} ({entity.answered_questions}/{entity.total_questions})
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center space-x-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-8 pr-3 py-1 border border-gray-300 rounded text-sm w-40"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-2 py-1 border border-gray-300 rounded text-sm"
+          >
+            <option value="all">All</option>
+            <option value="pending">Pending</option>
+            <option value="answered">Answered</option>
+            <option value="critical">Critical</option>
+          </select>
         </div>
       </div>
 
-      {/* Questions List */}
-      <div className="space-y-6">
-        {Object.entries(questionsByCategory).map(([category, categoryQuestions]) => (
-          <div key={category} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="px-6 py-4 bg-gray-50 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-900">{category}</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                {categoryQuestions.filter((q) => q.answer_status === 'completed').length} / {categoryQuestions.length} answered
-              </p>
-            </div>
+      {/* Compact Questions Table */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50 border-b border-gray-100">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-12">#</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Question</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-16">Entity</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-20">Files</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-12">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {filteredQuestions.map((question) => {
+              const entityCode = question.entity_code || 'General';
+              const colors = entityColors[entityCode] || entityColors.General;
 
-            <div className="divide-y divide-gray-100">
-              {categoryQuestions.map((question) => {
-                const colors = entityColors[question.entity_code] || entityColors.ARDC;
-
-                return (
-                  <Link
-                    key={question.id}
-                    to={`/session/${sessionId}/question/${question.id}`}
-                    className="block px-6 py-4 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start space-x-3 flex-1">
-                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-sm font-bold ${colors.badge}`}>
-                          {question.question_number}
+              return (
+                <tr key={question.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold ${colors.badge}`}>
+                      {question.question_number}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <Link
+                      to={`/workshop/${workshopId}/session/${sessionId}/question/${question.id}`}
+                      className="hover:text-nxsys-500 block"
+                    >
+                      <span className={question.is_critical ? 'font-medium' : ''}>
+                        {question.is_critical && <AlertTriangle className="inline w-3 h-3 text-amber-500 mr-1" />}
+                        {question.question_text.length > 100
+                          ? question.question_text.substring(0, 100) + '...'
+                          : question.question_text}
+                      </span>
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2">
+                    {entityCode && (
+                      <span className={`px-1.5 py-0.5 rounded text-xs ${colors.badge}`}>
+                        {entityCode}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center space-x-2 text-xs">
+                      {question.audio_count > 0 && (
+                        <span className="flex items-center text-purple-600">
+                          <Mic className="w-3 h-3 mr-0.5" />{question.audio_count}
                         </span>
-                        <div className="flex-1">
-                          <p className={`text-gray-900 ${question.is_critical ? 'font-medium' : ''}`}>
-                            {question.is_critical && (
-                              <AlertTriangle className="inline w-4 h-4 text-amber-500 mr-1" />
-                            )}
-                            {question.question_text}
-                          </p>
-                          <div className="flex items-center space-x-3 mt-2 text-xs text-gray-500">
-                            <span className={`px-2 py-0.5 rounded ${colors.badge}`}>
-                              {question.entity_code}
-                            </span>
-                            {question.audio_count > 0 && (
-                              <span className="flex items-center text-purple-600">
-                                <Mic className="w-3 h-3 mr-1" />
-                                {question.audio_count}
-                              </span>
-                            )}
-                            {question.document_count > 0 && (
-                              <span className="flex items-center text-blue-600">
-                                <Paperclip className="w-3 h-3 mr-1" />
-                                {question.document_count}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="ml-4 flex-shrink-0">
-                        {question.answer_status === 'completed' ? (
-                          <CheckCircle className="w-5 h-5 text-green-500" />
-                        ) : question.answer_status === 'in_progress' ? (
-                          <PlayCircle className="w-5 h-5 text-amber-500" />
-                        ) : (
-                          <Circle className="w-5 h-5 text-gray-300" />
-                        )}
-                      </div>
+                      )}
+                      {question.document_count > 0 && (
+                        <span className="flex items-center text-blue-600">
+                          <Paperclip className="w-3 h-3 mr-0.5" />{question.document_count}
+                        </span>
+                      )}
                     </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-
+                  </td>
+                  <td className="px-3 py-2">
+                    {question.answer_status === 'completed' ? (
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                    ) : question.answer_status === 'in_progress' ? (
+                      <PlayCircle className="w-4 h-4 text-amber-500" />
+                    ) : question.answer_status === 'pending' ? (
+                      <Clock className="w-4 h-4 text-blue-500" />
+                    ) : (
+                      <Circle className="w-4 h-4 text-gray-300" />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
         {filteredQuestions.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-xl border border-gray-100">
-            <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">No questions match your filters</p>
-          </div>
+          <div className="text-center py-8 text-gray-500 text-sm">No questions match your filters</div>
         )}
       </div>
+
+      {/* Report Generation Card */}
+      {reportStatus && (
+        <div className={`rounded-lg border p-4 ${
+          reportStatus.is_complete
+            ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
+            : 'bg-gray-50 border-gray-200'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                reportStatus.is_complete ? 'bg-green-100' : 'bg-gray-200'
+              }`}>
+                <FileText className={`w-6 h-6 ${reportStatus.is_complete ? 'text-green-600' : 'text-gray-500'}`} />
+              </div>
+              <div>
+                <h3 className="font-medium text-gray-900">Session Report</h3>
+                <div className="flex items-center gap-3 text-sm text-gray-600">
+                  <span>{reportStatus.completed_questions} of {reportStatus.total_questions} questions completed</span>
+                  <span className="text-gray-300">|</span>
+                  <span className={reportStatus.is_complete ? 'text-green-600 font-medium' : ''}>
+                    {reportStatus.completion_percent}% complete
+                  </span>
+                </div>
+                {/* Progress bar */}
+                <div className="w-48 h-2 bg-gray-200 rounded-full mt-2 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      reportStatus.is_complete ? 'bg-green-500' : 'bg-amber-400'
+                    }`}
+                    style={{ width: `${reportStatus.completion_percent}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {reportStatus.existing_report ? (
+                <>
+                  <Link
+                    to={`/workshop/${workshopId}/session/${sessionId}/report/${reportStatus.existing_report.id}`}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
+                    <Eye className="w-4 h-4" />
+                    View Report
+                  </Link>
+                  <button
+                    onClick={handleGenerateReport}
+                    disabled={generatingReport || !reportStatus.is_complete}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm bg-nxsys-500 text-white rounded-lg hover:bg-nxsys-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {generatingReport ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
+                    ) : (
+                      <><Sparkles className="w-4 h-4" /> Regenerate</>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleGenerateReport}
+                  disabled={generatingReport || !reportStatus.is_complete}
+                  className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg ${
+                    reportStatus.is_complete
+                      ? 'bg-green-600 text-white hover:bg-green-700'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  } disabled:opacity-50`}
+                >
+                  {generatingReport ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
+                  ) : (
+                    <><Sparkles className="w-4 h-4" /> Generate Report</>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!reportStatus.is_complete && (
+            <p className="text-xs text-gray-500 mt-3">
+              Complete all questions to generate the session report. Mark each question as "Completed" when finished.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

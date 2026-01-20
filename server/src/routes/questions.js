@@ -39,7 +39,6 @@ router.get('/', async (req, res) => {
         q.*,
         e.code as entity_code,
         e.name as entity_name,
-        c.name as category_name,
         a.id as answer_id,
         a.text_response,
         a.status as answer_status,
@@ -49,10 +48,9 @@ router.get('/', async (req, res) => {
         (SELECT COUNT(*) FROM documents d WHERE d.answer_id = a.id) as document_count
       FROM questions q
       LEFT JOIN entities e ON q.entity_id = e.id
-      LEFT JOIN categories c ON q.category_id = c.id
       LEFT JOIN answers a ON q.id = a.question_id
       ${whereClause}
-      ORDER BY q.entity_id, q.question_number
+      ORDER BY q.question_number ASC
       LIMIT $${paramIndex++} OFFSET $${paramIndex++}
     `, [...params, limit, offset]);
 
@@ -100,9 +98,11 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Question not found' });
     }
 
-    // Get answer if exists
+    // Get answer if exists (including observation)
     const answerResult = await db.query(`
-      SELECT * FROM answers WHERE question_id = $1
+      SELECT id, question_id, text_response, respondent_name, respondent_role,
+             notes, status, observation, created_at, updated_at
+      FROM answers WHERE question_id = $1
     `, [id]);
 
     // Get audio recordings if answer exists
@@ -121,19 +121,19 @@ router.get('/:id', async (req, res) => {
       documents = docsResult.rows;
     }
 
-    // Get adjacent questions for navigation
+    // Get adjacent questions for navigation (strictly sequential across all entities)
     const question = questionResult.rows[0];
     const prevResult = await db.query(`
       SELECT id, question_number FROM questions
-      WHERE session_id = $1 AND entity_id = $2 AND question_number < $3
+      WHERE session_id = $1 AND question_number < $2
       ORDER BY question_number DESC LIMIT 1
-    `, [question.session_id, question.entity_id, question.question_number]);
+    `, [question.session_id, question.question_number]);
 
     const nextResult = await db.query(`
       SELECT id, question_number FROM questions
-      WHERE session_id = $1 AND entity_id = $2 AND question_number > $3
+      WHERE session_id = $1 AND question_number > $2
       ORDER BY question_number ASC LIMIT 1
-    `, [question.session_id, question.entity_id, question.question_number]);
+    `, [question.session_id, question.question_number]);
 
     res.json({
       ...question,

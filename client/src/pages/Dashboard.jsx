@@ -1,224 +1,239 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getSessions } from '../services/api';
+import { getWorkshops, createWorkshop, deleteWorkshop } from '../services/workshopApi';
 import {
-  Calendar,
-  Clock,
-  Users,
-  CheckCircle,
-  Circle,
-  PlayCircle,
-  ChevronRight,
-  BarChart3
+  Plus,
+  FolderOpen,
+  Settings,
+  Trash2,
+  Building2,
+  FileText,
+  X
 } from 'lucide-react';
 
-const moduleColors = {
-  FICO: 'bg-blue-100 text-blue-800',
-  MM: 'bg-amber-100 text-amber-800',
-  SD: 'bg-green-100 text-green-800',
-  PP: 'bg-purple-100 text-purple-800',
-  QM: 'bg-rose-100 text-rose-800',
-  HR: 'bg-cyan-100 text-cyan-800',
-  Integration: 'bg-indigo-100 text-indigo-800'
-};
-
-const statusConfig = {
-  not_started: { icon: Circle, color: 'text-gray-400', label: 'Not Started' },
-  in_progress: { icon: PlayCircle, color: 'text-amber-500', label: 'In Progress' },
-  completed: { icon: CheckCircle, color: 'text-green-500', label: 'Completed' }
+const statusColors = {
+  setup: 'bg-amber-100 text-amber-800',
+  active: 'bg-green-100 text-green-800',
+  completed: 'bg-blue-100 text-blue-800'
 };
 
 function Dashboard() {
-  const [sessions, setSessions] = useState([]);
+  const [workshops, setWorkshops] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newWorkshop, setNewWorkshop] = useState({ name: '', client_name: '' });
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    loadSessions();
+    loadWorkshops();
   }, []);
 
-  const loadSessions = async () => {
+  const loadWorkshops = async () => {
     try {
-      const response = await getSessions();
-      setSessions(response.data);
+      const response = await getWorkshops();
+      setWorkshops(response.data);
     } catch (error) {
-      console.error('Failed to load sessions:', error);
+      console.error('Failed to load workshops:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const totalQuestions = sessions.reduce((sum, s) => sum + parseInt(s.total_questions || 0), 0);
-  const answeredQuestions = sessions.reduce((sum, s) => sum + parseInt(s.answered_questions || 0), 0);
-  const overallProgress = totalQuestions > 0 ? Math.round((answeredQuestions / totalQuestions) * 100) : 0;
+  const handleCreateWorkshop = async (e) => {
+    e.preventDefault();
+    if (!newWorkshop.name.trim()) return;
+
+    setCreating(true);
+    try {
+      await createWorkshop(newWorkshop);
+      await loadWorkshops();
+      setShowCreateModal(false);
+      setNewWorkshop({ name: '', client_name: '' });
+    } catch (error) {
+      console.error('Failed to create workshop:', error);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeleteWorkshop = async (id, name) => {
+    if (!confirm(`Delete workshop "${name}"? This will delete all sessions and questions.`)) return;
+
+    try {
+      await deleteWorkshop(id);
+      await loadWorkshops();
+    } catch (error) {
+      console.error('Failed to delete workshop:', error);
+    }
+  };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-rawabi-600"></div>
+      <div className="flex items-center justify-center min-h-[200px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-nxsys-500"></div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
-      {/* Header Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Total Sessions</p>
-              <p className="text-2xl font-bold text-gray-900">{sessions.length}</p>
-            </div>
-            <div className="w-12 h-12 bg-rawabi-100 rounded-lg flex items-center justify-center">
-              <Calendar className="w-6 h-6 text-rawabi-600" />
-            </div>
-          </div>
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Workshops</h1>
+          <p className="text-sm text-gray-500">Manage your SAP S/4HANA pre-discovery workshops</p>
         </div>
-
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Total Questions</p>
-              <p className="text-2xl font-bold text-gray-900">{totalQuestions}</p>
-            </div>
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <BarChart3 className="w-6 h-6 text-blue-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Answered</p>
-              <p className="text-2xl font-bold text-gray-900">{answeredQuestions}</p>
-            </div>
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Progress</p>
-              <p className="text-2xl font-bold text-gray-900">{overallProgress}%</p>
-            </div>
-            <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
-              <Clock className="w-6 h-6 text-amber-600" />
-            </div>
-          </div>
-          <div className="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-rawabi-500 rounded-full transition-all duration-500"
-              style={{ width: `${overallProgress}%` }}
-            />
-          </div>
-        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center space-x-2 px-4 py-2 bg-nxsys-500 text-white rounded-md hover:bg-nxsys-600 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          <span>New Workshop</span>
+        </button>
       </div>
 
-      {/* Sessions Grid */}
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Workshop Sessions</h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {sessions.map((session) => {
-            const StatusIcon = statusConfig[session.status]?.icon || Circle;
-            const progress = session.total_questions > 0
-              ? Math.round((session.answered_questions / session.total_questions) * 100)
-              : 0;
-
-            return (
-              <Link
-                key={session.id}
-                to={`/session/${session.id}`}
-                className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 hover:shadow-md hover:border-rawabi-200 transition-all group"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <span className="text-2xl font-bold text-rawabi-600">
-                      {session.session_number}
+      {/* Workshops Table */}
+      {workshops.length === 0 ? (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-12 text-center">
+          <Building2 className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500 mb-4">No workshops created yet.</p>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="inline-flex items-center space-x-2 px-4 py-2 bg-nxsys-500 text-white rounded-md hover:bg-nxsys-600"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Your First Workshop</span>
+          </button>
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Workshop</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Sessions</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Questions</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-20">Status</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase w-32">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {workshops.map((workshop) => (
+                <tr key={workshop.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-2">
+                    <span className="text-gray-900">{workshop.client_name || '-'}</span>
+                  </td>
+                  <td className="px-4 py-2">
+                    <Link to={`/workshop/${workshop.id}`} className="font-medium text-gray-900 hover:text-nxsys-500">
+                      {workshop.name}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-2 text-gray-600">
+                    {workshop.session_count || 0}
+                  </td>
+                  <td className="px-4 py-2 text-gray-600">
+                    {workshop.question_count || 0}
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColors[workshop.status] || statusColors.setup}`}>
+                      {workshop.status || 'setup'}
                     </span>
-                    <div>
-                      <h3 className="font-semibold text-gray-900 group-hover:text-rawabi-700 transition-colors">
-                        {session.name}
-                      </h3>
-                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium mt-1 ${moduleColors[session.module]}`}>
-                        {session.module}
-                      </span>
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center justify-end space-x-1">
+                      <Link
+                        to={`/workshop/${workshop.id}`}
+                        className="p-1.5 text-nxsys-600 hover:bg-nxsys-50 rounded transition-colors"
+                        title="Open Workshop"
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                      </Link>
+                      <Link
+                        to={`/workshop/${workshop.id}/setup`}
+                        className="p-1.5 text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                        title="Setup"
+                      >
+                        <Settings className="w-4 h-4" />
+                      </Link>
+                      <button
+                        onClick={() => handleDeleteWorkshop(workshop.id, workshop.name)}
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                        title="Delete Workshop"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-rawabi-500 transition-colors" />
-                </div>
-
-                <p className="text-sm text-gray-600 mb-4 line-clamp-2">{session.description}</p>
-
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center space-x-4 text-gray-500">
-                    <span className="flex items-center">
-                      <Users className="w-4 h-4 mr-1" />
-                      {session.lead_consultant}
-                    </span>
-                    <span className="flex items-center">
-                      <Calendar className="w-4 h-4 mr-1" />
-                      {new Date(session.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </span>
-                  </div>
-                  <div className="flex items-center">
-                    <StatusIcon className={`w-4 h-4 mr-1 ${statusConfig[session.status]?.color}`} />
-                    <span className="text-gray-600">{progress}%</span>
-                  </div>
-                </div>
-
-                <div className="mt-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-rawabi-500 rounded-full transition-all duration-500"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-
-                <div className="mt-2 text-xs text-gray-500">
-                  {session.answered_questions || 0} of {session.total_questions || 0} questions answered
-                </div>
-              </Link>
-            );
-          })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
+      )}
 
-      {/* Entities Legend */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-        <h3 className="font-semibold text-gray-900 mb-4">Entities Covered</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <span className="font-bold text-blue-700">ARDC</span>
+      {/* Create Workshop Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Create New Workshop</h2>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-1 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div>
-              <p className="font-medium text-gray-900">Al Rawabi Dairy Company</p>
-              <p className="text-xs text-gray-500">Dairy Production, Fresh Juices</p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-            <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
-              <span className="font-bold text-amber-700">ENF</span>
-            </div>
-            <div>
-              <p className="font-medium text-gray-900">Emirates National Food</p>
-              <p className="text-xs text-gray-500">Poultry, Al Rawdha Brand</p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <span className="font-bold text-green-700">GF</span>
-            </div>
-            <div>
-              <p className="font-medium text-gray-900">Greenfields for Feed</p>
-              <p className="text-xs text-gray-500">Animal Feed Manufacturing</p>
-            </div>
+
+            <form onSubmit={handleCreateWorkshop} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Workshop Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newWorkshop.name}
+                  onChange={(e) => setNewWorkshop({ ...newWorkshop, name: e.target.value })}
+                  placeholder="e.g., Al Rawabi S/4HANA Pre-Discovery"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-nxsys-500 focus:border-nxsys-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Client Name
+                </label>
+                <input
+                  type="text"
+                  value={newWorkshop.client_name}
+                  onChange={(e) => setNewWorkshop({ ...newWorkshop, client_name: e.target.value })}
+                  placeholder="e.g., Al Rawabi Dairy Company"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-nxsys-500 focus:border-nxsys-500"
+                />
+              </div>
+
+              <div className="flex items-center space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating || !newWorkshop.name.trim()}
+                  className="flex-1 px-4 py-2 bg-nxsys-500 text-white rounded-md hover:bg-nxsys-600 disabled:opacity-50"
+                >
+                  {creating ? 'Creating...' : 'Create Workshop'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

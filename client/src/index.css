@@ -38,3 +38,93 @@ body {
 .recording-pulse {
   animation: pulse-recording 1.5s ease-in-out infinite;
 }
+
+/* Header circuit animations */
+@keyframes scanLine {
+  0% {
+    transform: translateX(100vw);
+  }
+  100% {
+    transform: translateX(-200%);
+  }
+}
+
+@keyframes dataFlow {
+  0% {
+    right: -10px;
+    top: 35px;
+    opacity: 0;
+  }
+  5% {
+    opacity: 0.6;
+  }
+  15% {
+    top: 18px;
+  }
+  25% {
+    top: 45px;
+  }
+  35% {
+    top: 25px;
+  }
+  50% {
+    top: 55px;
+  }
+  60% {
+    top: 20px;
+  }
+  75% {
+    top: 48px;
+  }
+  85% {
+    top: 30px;
+  }
+  95% {
+    opacity: 0.6;
+  }
+  100% {
+    right: 100%;
+    top: 40px;
+    opacity: 0;
+  }
+}
+
+@keyframes nodePulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(230, 57, 70, 0.4);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 4px rgba(230, 57, 70, 0);
+  }
+}
+
+@keyframes twinkle {
+  0%, 100% {
+    opacity: 0.15;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes flutter {
+  0%, 100% {
+    transform: scaleX(1) rotate(-5deg);
+  }
+  50% {
+    transform: scaleX(0.85) rotate(5deg);
+  }
+}
+
+@keyframes snowflakeSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
