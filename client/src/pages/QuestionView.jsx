@@ -45,6 +45,7 @@ import {
   HelpCircle,
   ArrowRight
 } from 'lucide-react';
+import CriticalConfirmDialog from '../components/CriticalConfirmDialog';
 
 const entityColors = {
   ARDC: { bg: 'bg-blue-50', border: 'border-blue-200', badge: 'bg-blue-100 text-blue-800' },
@@ -98,6 +99,9 @@ function QuestionView() {
   // Initial checklist generation state
   const [generatingInitialChecklist, setGeneratingInitialChecklist] = useState(false);
   const initialChecklistFetchedRef = useRef(false);
+
+  // Critical confirmation dialog state
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   useEffect(() => {
     // Reset the initial checklist flag when question changes
@@ -248,8 +252,12 @@ function QuestionView() {
     }
   };
 
-  const handleReset = async () => {
-    if (!confirm('Delete all data for this question?')) return;
+  const handleResetClick = () => {
+    setShowResetConfirm(true);
+  };
+
+  const handleResetConfirm = async () => {
+    setShowResetConfirm(false);
     setResetting(true);
     try {
       await resetQuestionData(questionId);
@@ -646,7 +654,7 @@ function QuestionView() {
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
                 placeholder="Additional notes..." rows={2} className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm resize-none" />
               <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                <button onClick={handleReset} disabled={resetting}
+                <button onClick={handleResetClick} disabled={resetting}
                   className="flex items-center gap-1 px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded disabled:opacity-50">
                   <RotateCcw className="w-3 h-3" />Reset
                 </button>
@@ -1150,6 +1158,15 @@ function QuestionView() {
           )}
         </div>
       </div>
+
+      {/* Critical Reset Confirmation Dialog */}
+      <CriticalConfirmDialog
+        isOpen={showResetConfirm}
+        onConfirm={handleResetConfirm}
+        onCancel={() => setShowResetConfirm(false)}
+        title="Reset Question Data"
+        description="You are about to delete all data for this question including audio recordings, documents, transcriptions, and observations."
+      />
     </div>
   );
 }

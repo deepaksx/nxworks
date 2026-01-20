@@ -14,6 +14,7 @@ import {
   Upload,
   Database
 } from 'lucide-react';
+import CriticalConfirmDialog from '../components/CriticalConfirmDialog';
 
 const statusColors = {
   setup: 'bg-amber-100 text-amber-800',
@@ -30,6 +31,10 @@ function Dashboard() {
   const [backupLoading, setBackupLoading] = useState(false);
   const [restoreLoading, setRestoreLoading] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Critical confirmation dialog state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [workshopToDelete, setWorkshopToDelete] = useState(null);
 
   useEffect(() => {
     loadWorkshops();
@@ -63,14 +68,22 @@ function Dashboard() {
     }
   };
 
-  const handleDeleteWorkshop = async (id, name) => {
-    if (!confirm(`Delete workshop "${name}"? This will delete all sessions and questions.`)) return;
+  const handleDeleteWorkshopClick = (id, name) => {
+    setWorkshopToDelete({ id, name });
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteWorkshopConfirm = async () => {
+    if (!workshopToDelete) return;
+    setShowDeleteConfirm(false);
 
     try {
-      await deleteWorkshop(id);
+      await deleteWorkshop(workshopToDelete.id);
       await loadWorkshops();
     } catch (error) {
       console.error('Failed to delete workshop:', error);
+    } finally {
+      setWorkshopToDelete(null);
     }
   };
 
@@ -247,7 +260,7 @@ function Dashboard() {
                         <Settings className="w-4 h-4" />
                       </Link>
                       <button
-                        onClick={() => handleDeleteWorkshop(workshop.id, workshop.name)}
+                        onClick={() => handleDeleteWorkshopClick(workshop.id, workshop.name)}
                         className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
                         title="Delete Workshop"
                       >
@@ -324,6 +337,18 @@ function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Critical Delete Workshop Confirmation Dialog */}
+      <CriticalConfirmDialog
+        isOpen={showDeleteConfirm}
+        onConfirm={handleDeleteWorkshopConfirm}
+        onCancel={() => {
+          setShowDeleteConfirm(false);
+          setWorkshopToDelete(null);
+        }}
+        title="Delete Workshop"
+        description={workshopToDelete ? `You are about to permanently delete the workshop "${workshopToDelete.name}" and all its data including sessions, questions, answers, audio recordings, documents, and observations.` : ''}
+      />
     </div>
   );
 }

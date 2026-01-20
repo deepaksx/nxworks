@@ -31,6 +31,7 @@ import {
   Edit3
 } from 'lucide-react';
 import axios from 'axios';
+import CriticalConfirmDialog from '../components/CriticalConfirmDialog';
 
 const moduleOptions = [
   // Finance & Controlling
@@ -138,6 +139,9 @@ function WorkshopSetup() {
   const [customInstructionsModalOpen, setCustomInstructionsModalOpen] = useState(false);
   const [editingCustomInstructions, setEditingCustomInstructions] = useState('');
 
+  // Critical confirmation dialog state
+  const [showGenerateConfirm, setShowGenerateConfirm] = useState(false);
+
   useEffect(() => {
     loadAllData();
   }, [workshopId]);
@@ -204,13 +208,16 @@ function WorkshopSetup() {
     }
   };
 
-  const handleGenerateQuestions = async () => {
+  const handleGenerateQuestionsClick = () => {
     if (sessions.length === 0) {
       alert('Please add at least one session before generating questions.');
       return;
     }
-    if (!confirm(`Generate questions for all ${sessions.length} sessions?`)) return;
+    setShowGenerateConfirm(true);
+  };
 
+  const handleGenerateQuestionsConfirm = async () => {
+    setShowGenerateConfirm(false);
     setGenerating(true);
     setGenerationProgress({
       sessionCurrent: 0,
@@ -499,7 +506,7 @@ function WorkshopSetup() {
             <span>{saveSuccess ? 'Saved!' : 'Save'}</span>
           </button>
           <button
-            onClick={handleGenerateQuestions}
+            onClick={handleGenerateQuestionsClick}
             disabled={generating || sessions.length === 0}
             className="flex items-center space-x-1.5 px-3 py-1.5 text-sm bg-gradient-to-r from-purple-500 to-nxsys-500 text-white rounded-lg hover:from-purple-600 hover:to-nxsys-600 disabled:opacity-50"
           >
@@ -747,7 +754,7 @@ function WorkshopSetup() {
             <span className="text-sm font-medium text-gray-900">{entities.length} entities, {sessions.length} sessions</span>
           </div>
           <button
-            onClick={handleGenerateQuestions}
+            onClick={handleGenerateQuestionsClick}
             disabled={generating || sessions.length === 0}
             className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-purple-500 to-nxsys-500 text-white rounded-lg hover:from-purple-600 hover:to-nxsys-600 disabled:opacity-50 text-sm font-medium"
           >
@@ -887,6 +894,15 @@ Examples:
           </div>
         </div>
       )}
+
+      {/* Critical Generate Questions Confirmation Dialog */}
+      <CriticalConfirmDialog
+        isOpen={showGenerateConfirm}
+        onConfirm={handleGenerateQuestionsConfirm}
+        onCancel={() => setShowGenerateConfirm(false)}
+        title="Regenerate All Questions"
+        description={`You are about to regenerate questions for all ${sessions.length} session(s). This will delete ALL existing questions, answers, audio recordings, and observations for every session.`}
+      />
     </div>
   );
 }
