@@ -523,7 +523,7 @@ function QuestionView() {
     { id: 'observation', label: 'Checklist', icon: BarChart3, count: null, processing: processingAudio || generatingInitialChecklist },
     { id: 'audio', label: 'Audio', icon: Headphones, count: audioCount || null, processing: isRecording },
     { id: 'docs', label: 'Docs', icon: FolderOpen, count: docCount || null },
-    { id: 'response', label: 'Text Response', icon: MessageSquare, count: null },
+    { id: 'response', label: 'Free Text Input', icon: MessageSquare, count: null },
   ];
 
   return (
@@ -600,25 +600,11 @@ function QuestionView() {
         </div>
 
         <div className="p-2">
-          {/* Response Tab */}
+          {/* Free Text Input Tab */}
           {activeTab === 'response' && (
             <div className="space-y-3">
-              <select value={selectedParticipantId} onChange={(e) => handleParticipantChange(e.target.value)}
-                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
-                <option value="">Select respondent...</option>
-                {participants.map((p) => <option key={p.id} value={p.id.toString()}>{p.name} - {p.role}</option>)}
-                <option value="other">Other</option>
-              </select>
-              {selectedParticipantId === 'other' && (
-                <div className="flex gap-2">
-                  <input type="text" value={respondentName} onChange={(e) => setRespondentName(e.target.value)}
-                    placeholder="Name" className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm" />
-                  <input type="text" value={respondentRole} onChange={(e) => setRespondentRole(e.target.value)}
-                    placeholder="Role" className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm" />
-                </div>
-              )}
               <textarea value={textResponse} onChange={(e) => setTextResponse(e.target.value)}
-                placeholder="Enter response..." rows={6} className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm resize-none" />
+                placeholder="Enter free text response..." rows={8} className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm resize-none" />
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
                 placeholder="Additional notes..." rows={2} className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm resize-none" />
               <div className="flex items-center justify-between pt-2 border-t border-gray-100">
@@ -752,6 +738,24 @@ function QuestionView() {
           {/* Observation Tab - Checklist */}
           {activeTab === 'observation' && (
             <div className="space-y-4">
+              {/* Respondent Selection */}
+              <div className="flex items-center gap-2">
+                <select value={selectedParticipantId} onChange={(e) => handleParticipantChange(e.target.value)}
+                  className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">
+                  <option value="">Select respondent...</option>
+                  {participants.map((p) => <option key={p.id} value={p.id.toString()}>{p.name} - {p.role}</option>)}
+                  <option value="other">Other</option>
+                </select>
+                {selectedParticipantId === 'other' && (
+                  <>
+                    <input type="text" value={respondentName} onChange={(e) => setRespondentName(e.target.value)}
+                      placeholder="Name" className="w-32 px-2 py-1.5 border border-gray-300 rounded text-sm" />
+                    <input type="text" value={respondentRole} onChange={(e) => setRespondentRole(e.target.value)}
+                      placeholder="Role" className="w-32 px-2 py-1.5 border border-gray-300 rounded text-sm" />
+                  </>
+                )}
+              </div>
+
               {/* Header with Record, Generate Checklist, and Analyze buttons */}
               <div className="flex items-center justify-between">
                 <div className="text-sm font-medium text-gray-700">Initial Checklist</div>
