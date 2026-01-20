@@ -3,6 +3,8 @@ const router = express.Router();
 const Anthropic = require('@anthropic-ai/sdk');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 const db = require('../models/db');
 
 // Document parsing libraries
@@ -14,16 +16,53 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
 });
 
+// Download file from URL to buffer
+const downloadToBuffer = (url) => {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http;
+
+    protocol.get(url, (response) => {
+      if (response.statusCode === 301 || response.statusCode === 302) {
+        downloadToBuffer(response.headers.location)
+          .then(resolve)
+          .catch(reject);
+        return;
+      }
+
+      if (response.statusCode !== 200) {
+        reject(new Error(`Failed to download: ${response.statusCode}`));
+        return;
+      }
+
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => resolve(Buffer.concat(chunks)));
+      response.on('error', reject);
+    }).on('error', reject);
+  });
+};
+
 // Analyze image using Claude Vision
 async function analyzeImage(filePath, mimeType) {
   try {
-    const fullPath = path.join(__dirname, '../..', filePath);
+    let buffer;
 
-    if (!fs.existsSync(fullPath)) {
-      return '[Image file not found]';
+    if (filePath.startsWith('http')) {
+      // Download from S3
+      console.log('Downloading image from S3:', filePath);
+      buffer = await downloadToBuffer(filePath);
+    } else {
+      // Local file
+      const fullPath = process.env.NODE_ENV === 'production'
+        ? path.join('/tmp', filePath)
+        : path.join(__dirname, '../..', filePath);
+
+      if (!fs.existsSync(fullPath)) {
+        return '[Image file not found]';
+      }
+      buffer = fs.readFileSync(fullPath);
     }
 
-    const buffer = fs.readFileSync(fullPath);
     const base64Image = buffer.toString('base64');
 
     const mediaType = mimeType === 'image/jpg' ? 'image/jpeg' : mimeType;
@@ -62,13 +101,23 @@ async function analyzeImage(filePath, mimeType) {
 // Extract text from various document types
 async function extractDocumentContent(filePath, mimeType) {
   try {
-    const fullPath = path.join(__dirname, '../..', filePath);
+    let buffer;
 
-    if (!fs.existsSync(fullPath)) {
-      return '[File not found]';
+    if (filePath.startsWith('http')) {
+      // Download from S3
+      console.log('Downloading document from S3:', filePath);
+      buffer = await downloadToBuffer(filePath);
+    } else {
+      // Local file
+      const fullPath = process.env.NODE_ENV === 'production'
+        ? path.join('/tmp', filePath)
+        : path.join(__dirname, '../..', filePath);
+
+      if (!fs.existsSync(fullPath)) {
+        return '[File not found]';
+      }
+      buffer = fs.readFileSync(fullPath);
     }
-
-    const buffer = fs.readFileSync(fullPath);
 
     if (mimeType === 'application/pdf') {
       const data = await pdfParse(buffer);
