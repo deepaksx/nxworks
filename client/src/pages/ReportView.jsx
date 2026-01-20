@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getReport, getSession, updateReportStatus, exportReportPDF, getSessionObservations } from '../services/api';
+import { getReport, getSession, updateReportStatus, exportReportExcel, exportReportMarkdown, getSessionObservations } from '../services/api';
 import {
   ChevronLeft,
   FileText,
@@ -12,7 +12,8 @@ import {
   Clock,
   Building2,
   Loader2,
-  Download,
+  FileSpreadsheet,
+  FileCode,
   Printer,
   Check,
   TrendingUp,
@@ -76,9 +77,14 @@ function ReportView() {
     window.print();
   };
 
-  const handleDownloadPDF = () => {
-    // Trigger download by opening the PDF URL
-    window.open(exportReportPDF(reportId), '_blank');
+  const handleDownloadExcel = () => {
+    // Trigger download by opening the Excel URL
+    window.open(exportReportExcel(reportId), '_blank');
+  };
+
+  const handleDownloadMarkdown = () => {
+    // Trigger download by opening the Markdown URL
+    window.open(exportReportMarkdown(reportId), '_blank');
   };
 
   const handleFinalizeReport = async () => {
@@ -152,8 +158,11 @@ function ReportView() {
             }`}>
               {report.status === 'final' ? 'Finalized' : 'Draft'}
             </span>
-            <button onClick={handleDownloadPDF} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-nxsys-500 text-white rounded hover:bg-nxsys-600">
-              <Download className="w-4 h-4" /> Download PDF
+            <button onClick={handleDownloadExcel} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700">
+              <FileSpreadsheet className="w-4 h-4" /> Excel
+            </button>
+            <button onClick={handleDownloadMarkdown} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-700 text-white rounded hover:bg-gray-800">
+              <FileCode className="w-4 h-4" /> Markdown
             </button>
             <button onClick={handlePrint} className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50">
               <Printer className="w-4 h-4" /> Print

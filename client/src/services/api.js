@@ -64,5 +64,7 @@ export const updateReportStatus = (reportId, status) => api.patch(`/reports/${re
 export const deleteReport = (reportId) => api.delete(`/reports/${reportId}`);
 export const exportReportPDF = (reportId) => `/api/reports/${reportId}/export/pdf`;
 export const exportSessionPDF = (sessionId) => `/api/reports/session/${sessionId}/export/pdf`;
+export const exportReportExcel = (reportId) => `/api/reports/${reportId}/export/excel`;
+export const exportReportMarkdown = (reportId) => `/api/reports/${reportId}/export/markdown`;
 
 export default api;
