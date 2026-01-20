@@ -124,9 +124,11 @@ router.get('/:id', async (req, res) => {
     // Get adjacent questions for navigation (strictly sequential across all entities)
     const question = questionResult.rows[0];
     const prevResult = await db.query(`
-      SELECT id, question_number FROM questions
-      WHERE session_id = $1 AND question_number < $2
-      ORDER BY question_number DESC LIMIT 1
+      SELECT q.id, q.question_number, a.status as answer_status
+      FROM questions q
+      LEFT JOIN answers a ON q.id = a.question_id
+      WHERE q.session_id = $1 AND q.question_number < $2
+      ORDER BY q.question_number DESC LIMIT 1
     `, [question.session_id, question.question_number]);
 
     const nextResult = await db.query(`
@@ -134,6 +136,11 @@ router.get('/:id', async (req, res) => {
       WHERE session_id = $1 AND question_number > $2
       ORDER BY question_number ASC LIMIT 1
     `, [question.session_id, question.question_number]);
+
+    // Determine if this question is accessible (previous question must be completed, or this is question 1)
+    const isAccessible = question.question_number === 1 ||
+      !prevResult.rows[0] ||
+      prevResult.rows[0].answer_status === 'completed';
 
     res.json({
       ...question,
@@ -143,7 +150,8 @@ router.get('/:id', async (req, res) => {
       navigation: {
         previous: prevResult.rows[0] || null,
         next: nextResult.rows[0] || null
-      }
+      },
+      isAccessible
     });
   } catch (error) {
     console.error('Error fetching question:', error);
