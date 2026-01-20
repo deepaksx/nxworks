@@ -19,7 +19,13 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Serve uploads - use /tmp in production (Render)
+if (process.env.NODE_ENV === 'production') {
+  app.use('/uploads', express.static('/tmp/uploads'));
+} else {
+  app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+}
 
 // Serve static files from React app in production
 if (process.env.NODE_ENV === 'production') {

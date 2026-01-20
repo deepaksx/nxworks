@@ -7,9 +7,17 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../models/db');
 
 // Configure multer for file uploads
+// Use /tmp in production (Render) since filesystem is read-only
+const getUploadBase = () => {
+  if (process.env.NODE_ENV === 'production') {
+    return '/tmp/uploads';
+  }
+  return path.join(__dirname, '../../uploads');
+};
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    let uploadDir = path.join(__dirname, '../../uploads');
+    let uploadDir = getUploadBase();
 
     if (file.mimetype.startsWith('audio/')) {
       uploadDir = path.join(uploadDir, 'audio');
@@ -18,11 +26,15 @@ const storage = multer.diskStorage({
     }
 
     // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    try {
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      cb(null, uploadDir);
+    } catch (error) {
+      console.error('Failed to create upload directory:', error);
+      cb(error, null);
     }
-
-    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueName = `${uuidv4()}-${Date.now()}${path.extname(file.originalname)}`;
@@ -118,8 +130,14 @@ router.post('/:answerId/audio', upload.single('audio'), async (req, res) => {
       return res.status(400).json({ error: 'No audio file provided' });
     }
 
-    // Use forward slashes for URL compatibility
+    // Store relative URL path (always uploads/audio/filename for serving)
     const relativePath = `uploads/audio/${req.file.filename}`;
+
+    console.log('Audio file saved:', {
+      actualPath: req.file.path,
+      relativePath,
+      size: req.file.size
+    });
 
     const result = await db.query(`
       INSERT INTO audio_recordings (answer_id, file_path, file_name, mime_type, file_size, duration_seconds)
@@ -166,7 +184,7 @@ router.delete('/audio/:audioId', async (req, res) => {
     const { audioId } = req.params;
 
     // Get file path first
-    const audioResult = await db.query('SELECT file_path FROM audio_recordings WHERE id = $1', [audioId]);
+    const audioResult = await db.query('SELECT file_path, file_name FROM audio_recordings WHERE id = $1', [audioId]);
 
     if (audioResult.rows.length === 0) {
       return res.status(404).json({ error: 'Audio recording not found' });
@@ -176,7 +194,11 @@ router.delete('/audio/:audioId', async (req, res) => {
     await db.query('DELETE FROM audio_recordings WHERE id = $1', [audioId]);
 
     // Delete file from filesystem
-    const filePath = path.join(__dirname, '../..', audioResult.rows[0].file_path);
+    const fileName = audioResult.rows[0].file_name;
+    const filePath = process.env.NODE_ENV === 'production'
+      ? `/tmp/uploads/audio/${fileName}`
+      : path.join(__dirname, '../../uploads/audio', fileName);
+
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
@@ -194,7 +216,7 @@ router.delete('/document/:docId', async (req, res) => {
     const { docId } = req.params;
 
     // Get file path first
-    const docResult = await db.query('SELECT file_path FROM documents WHERE id = $1', [docId]);
+    const docResult = await db.query('SELECT file_path, file_name FROM documents WHERE id = $1', [docId]);
 
     if (docResult.rows.length === 0) {
       return res.status(404).json({ error: 'Document not found' });
@@ -204,7 +226,11 @@ router.delete('/document/:docId', async (req, res) => {
     await db.query('DELETE FROM documents WHERE id = $1', [docId]);
 
     // Delete file from filesystem
-    const filePath = path.join(__dirname, '../..', docResult.rows[0].file_path);
+    const fileName = docResult.rows[0].file_name;
+    const filePath = process.env.NODE_ENV === 'production'
+      ? `/tmp/uploads/documents/${fileName}`
+      : path.join(__dirname, '../../uploads/documents', fileName);
+
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
