@@ -3,6 +3,8 @@ const router = express.Router();
 const OpenAI = require('openai');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 const db = require('../models/db');
 
 // Lazy initialization to avoid crash if API key not set
@@ -14,8 +16,42 @@ const getOpenAI = () => {
   return openai;
 };
 
+// Download file from URL to temp path
+const downloadFile = (url, destPath) => {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http;
+    const file = fs.createWriteStream(destPath);
+
+    protocol.get(url, (response) => {
+      if (response.statusCode === 301 || response.statusCode === 302) {
+        // Handle redirect
+        downloadFile(response.headers.location, destPath)
+          .then(resolve)
+          .catch(reject);
+        return;
+      }
+
+      if (response.statusCode !== 200) {
+        reject(new Error(`Failed to download: ${response.statusCode}`));
+        return;
+      }
+
+      response.pipe(file);
+      file.on('finish', () => {
+        file.close();
+        resolve(destPath);
+      });
+    }).on('error', (err) => {
+      fs.unlink(destPath, () => {}); // Delete partial file
+      reject(err);
+    });
+  });
+};
+
 // Transcribe audio file and clean it up
 router.post('/:audioId', async (req, res) => {
+  let tempFilePath = null;
+
   try {
     const { audioId } = req.params;
 
@@ -36,7 +72,29 @@ router.post('/:audioId', async (req, res) => {
     }
 
     const audio = audioResult.rows[0];
-    const filePath = path.join(__dirname, '../..', audio.file_path);
+    let filePath;
+
+    // Check if file is on S3 (URL) or local
+    if (audio.file_path.startsWith('http')) {
+      // S3 URL - download to temp file
+      const tempDir = process.env.NODE_ENV === 'production' ? '/tmp' : path.join(__dirname, '../../uploads');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+
+      tempFilePath = path.join(tempDir, `temp-${audioId}-${Date.now()}.webm`);
+      console.log('Downloading from S3:', audio.file_path);
+      await downloadFile(audio.file_path, tempFilePath);
+      filePath = tempFilePath;
+      console.log('Downloaded to:', filePath);
+    } else {
+      // Local file
+      if (process.env.NODE_ENV === 'production') {
+        filePath = path.join('/tmp', audio.file_path);
+      } else {
+        filePath = path.join(__dirname, '../..', audio.file_path);
+      }
+    }
 
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'Audio file not found on disk' });
@@ -88,6 +146,11 @@ Keep the response concise and directly usable as meeting notes.`
       [cleanedText, audioId]
     );
 
+    // Clean up temp file if we downloaded from S3
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+
     res.json({
       success: true,
       raw_transcription: transcription,
@@ -96,6 +159,11 @@ Keep the response concise and directly usable as meeting notes.`
 
   } catch (error) {
     console.error('Transcription error:', error);
+
+    // Clean up temp file on error
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    }
 
     if (error.code === 'invalid_api_key') {
       return res.status(401).json({ error: 'Invalid OpenAI API key. Please check OPENAI_API_KEY in .env' });
