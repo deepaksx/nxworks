@@ -38,9 +38,18 @@ app.use('/api/research', researchRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/admin', adminRouter);
 
-// Health check
+// Health check with env status
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    env: {
+      NODE_ENV: process.env.NODE_ENV || 'not set',
+      DATABASE_URL: process.env.DATABASE_URL ? 'configured' : 'missing',
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing',
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY ? 'configured' : 'missing'
+    }
+  });
 });
 
 // Serve React app for any other routes in production
@@ -52,4 +61,7 @@ if (process.env.NODE_ENV === 'production') {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'set (' + process.env.ANTHROPIC_API_KEY.substring(0, 10) + '...)' : 'NOT SET'}`);
+  console.log(`OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? 'set' : 'NOT SET'}`);
 });
