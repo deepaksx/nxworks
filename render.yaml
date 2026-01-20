@@ -11,7 +11,7 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-    buildCommand: cd client && npm install && npm run build && cd ../server && npm install && npm run db:init
+    buildCommand: cd client && npm ci && npm run build && cd ../server && npm ci && npm run db:init
     startCommand: cd server && node src/index.js
     envVars:
       - key: NODE_ENV
