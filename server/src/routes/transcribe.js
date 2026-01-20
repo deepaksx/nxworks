@@ -5,14 +5,25 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../models/db');
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// Lazy initialization to avoid crash if API key not set
+let openai = null;
+const getOpenAI = () => {
+  if (!openai && process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openai;
+};
 
 // Transcribe audio file and clean it up
 router.post('/:audioId', async (req, res) => {
   try {
     const { audioId } = req.params;
+
+    // Check if OpenAI is configured
+    const client = getOpenAI();
+    if (!client) {
+      return res.status(503).json({ error: 'Transcription service not configured. OPENAI_API_KEY is required.' });
+    }
 
     // Get audio file info from database
     const audioResult = await db.query(
@@ -34,7 +45,7 @@ router.post('/:audioId', async (req, res) => {
     console.log('Transcribing audio:', filePath);
 
     // Step 1: Transcribe using Whisper
-    const transcription = await openai.audio.transcriptions.create({
+    const transcription = await client.audio.transcriptions.create({
       file: fs.createReadStream(filePath),
       model: 'whisper-1',
       language: 'en',
@@ -44,7 +55,7 @@ router.post('/:audioId', async (req, res) => {
     console.log('Raw transcription:', transcription);
 
     // Step 2: Clean up and structure using GPT
-    const cleanupResponse = await openai.chat.completions.create({
+    const cleanupResponse = await client.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {
