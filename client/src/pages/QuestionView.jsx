@@ -67,6 +67,7 @@ function QuestionView() {
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState('pending');
   const [selectedParticipantId, setSelectedParticipantId] = useState('');
+  const [selectedRespondents, setSelectedRespondents] = useState([]);
 
   const [isRecording, setIsRecording] = useState(false);
   const [pendingAudios, setPendingAudios] = useState([]);
@@ -155,6 +156,18 @@ function QuestionView() {
         setNotes(questionRes.data.answer.notes || '');
         setStatus(questionRes.data.answer.status || 'pending');
 
+        // Load respondents array
+        const respondents = questionRes.data.answer.respondents;
+        if (respondents && Array.isArray(respondents) && respondents.length > 0) {
+          setSelectedRespondents(respondents);
+        } else if (questionRes.data.answer.respondent_name) {
+          // Backward compatibility: convert single respondent to array
+          setSelectedRespondents([{
+            name: questionRes.data.answer.respondent_name,
+            role: questionRes.data.answer.respondent_role || ''
+          }]);
+        }
+
         const matchedParticipant = participantsRes.data.find(
           p => p.name === questionRes.data.answer.respondent_name
         );
@@ -180,13 +193,37 @@ function QuestionView() {
     }
   };
 
+  const addRespondent = () => {
+    if (selectedParticipantId === 'other') {
+      if (!respondentName.trim()) return;
+      const newRespondent = { name: respondentName.trim(), role: respondentRole.trim() };
+      if (!selectedRespondents.some(r => r.name === newRespondent.name)) {
+        setSelectedRespondents([...selectedRespondents, newRespondent]);
+      }
+      setRespondentName('');
+      setRespondentRole('');
+      setSelectedParticipantId('');
+    } else if (selectedParticipantId) {
+      const participant = participants.find(p => p.id.toString() === selectedParticipantId);
+      if (participant && !selectedRespondents.some(r => r.name === participant.name)) {
+        setSelectedRespondents([...selectedRespondents, { name: participant.name, role: participant.role || '' }]);
+      }
+      setSelectedParticipantId('');
+    }
+  };
+
+  const removeRespondent = (index) => {
+    setSelectedRespondents(selectedRespondents.filter((_, i) => i !== index));
+  };
+
   const handleSave = async (newStatus = null) => {
     setSaving(true);
     try {
       const response = await saveAnswer(questionId, {
         text_response: textResponse,
-        respondent_name: respondentName,
-        respondent_role: respondentRole,
+        respondent_name: selectedRespondents[0]?.name || respondentName,
+        respondent_role: selectedRespondents[0]?.role || respondentRole,
+        respondents: selectedRespondents,
         notes,
         status: newStatus || status
       });
@@ -218,7 +255,7 @@ function QuestionView() {
       await resetQuestionData(questionId);
       setTextResponse(''); setRespondentName(''); setRespondentRole('');
       setNotes(''); setStatus('pending'); setSelectedParticipantId('');
-      setPendingAudios([]); setObservations([]);
+      setPendingAudios([]); setObservations([]); setSelectedRespondents([]);
       await loadData();
     } catch (error) {
       alert('Failed to reset.');
@@ -304,8 +341,9 @@ function QuestionView() {
       if (!answerId) {
         const saveResponse = await saveAnswer(questionId, {
           text_response: textResponse,
-          respondent_name: respondentName,
-          respondent_role: respondentRole,
+          respondent_name: selectedRespondents[0]?.name || respondentName,
+          respondent_role: selectedRespondents[0]?.role || respondentRole,
+          respondents: selectedRespondents,
           notes,
           status: 'in_progress'
         });
@@ -739,21 +777,42 @@ function QuestionView() {
           {activeTab === 'observation' && (
             <div className="space-y-4">
               {/* Respondent Selection */}
-              <div className="flex items-center gap-2">
-                <select value={selectedParticipantId} onChange={(e) => handleParticipantChange(e.target.value)}
-                  className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">
-                  <option value="">Select respondent...</option>
-                  {participants.map((p) => <option key={p.id} value={p.id.toString()}>{p.name} - {p.role}</option>)}
-                  <option value="other">Other</option>
-                </select>
-                {selectedParticipantId === 'other' && (
-                  <>
-                    <input type="text" value={respondentName} onChange={(e) => setRespondentName(e.target.value)}
-                      placeholder="Name" className="w-32 px-2 py-1.5 border border-gray-300 rounded text-sm" />
-                    <input type="text" value={respondentRole} onChange={(e) => setRespondentRole(e.target.value)}
-                      placeholder="Role" className="w-32 px-2 py-1.5 border border-gray-300 rounded text-sm" />
-                  </>
+              <div className="space-y-2">
+                {/* Selected Respondents */}
+                {selectedRespondents.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedRespondents.map((r, idx) => (
+                      <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 bg-nxsys-100 text-nxsys-700 rounded-full text-xs">
+                        <span className="font-medium">{r.name}</span>
+                        {r.role && <span className="text-nxsys-500">({r.role})</span>}
+                        <button onClick={() => removeRespondent(idx)} className="ml-0.5 hover:text-red-600">×</button>
+                      </span>
+                    ))}
+                  </div>
                 )}
+                {/* Add Respondent */}
+                <div className="flex items-center gap-2">
+                  <select value={selectedParticipantId} onChange={(e) => handleParticipantChange(e.target.value)}
+                    className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">
+                    <option value="">Add respondent...</option>
+                    {participants.filter(p => !selectedRespondents.some(r => r.name === p.name)).map((p) => (
+                      <option key={p.id} value={p.id.toString()}>{p.name} - {p.role}</option>
+                    ))}
+                    <option value="other">Other (manual entry)</option>
+                  </select>
+                  {selectedParticipantId === 'other' && (
+                    <>
+                      <input type="text" value={respondentName} onChange={(e) => setRespondentName(e.target.value)}
+                        placeholder="Name" className="w-28 px-2 py-1.5 border border-gray-300 rounded text-sm" />
+                      <input type="text" value={respondentRole} onChange={(e) => setRespondentRole(e.target.value)}
+                        placeholder="Role" className="w-28 px-2 py-1.5 border border-gray-300 rounded text-sm" />
+                    </>
+                  )}
+                  <button onClick={addRespondent} disabled={!selectedParticipantId}
+                    className="px-3 py-1.5 bg-nxsys-500 text-white text-xs rounded hover:bg-nxsys-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Add
+                  </button>
+                </div>
               </div>
 
               {/* Header with Record, Generate Checklist, and Analyze buttons */}

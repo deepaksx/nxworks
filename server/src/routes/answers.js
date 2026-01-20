@@ -62,7 +62,7 @@ router.post('/question/:questionId', async (req, res) => {
 
   try {
     const { questionId } = req.params;
-    const { text_response, respondent_name, respondent_role, notes, status } = req.body;
+    const { text_response, respondent_name, respondent_role, respondents, notes, status } = req.body;
 
     // Check if answer exists
     const existingAnswer = await db.query(
@@ -78,19 +78,20 @@ router.post('/question/:questionId', async (req, res) => {
         SET text_response = COALESCE($1, text_response),
             respondent_name = COALESCE($2, respondent_name),
             respondent_role = COALESCE($3, respondent_role),
-            notes = COALESCE($4, notes),
-            status = COALESCE($5, status),
+            respondents = COALESCE($4, respondents),
+            notes = COALESCE($5, notes),
+            status = COALESCE($6, status),
             updated_at = CURRENT_TIMESTAMP
-        WHERE question_id = $6
+        WHERE question_id = $7
         RETURNING *
-      `, [text_response, respondent_name, respondent_role, notes, status, questionId]);
+      `, [text_response, respondent_name, respondent_role, respondents ? JSON.stringify(respondents) : null, notes, status, questionId]);
     } else {
       // Create new answer
       result = await db.query(`
-        INSERT INTO answers (question_id, text_response, respondent_name, respondent_role, notes, status)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO answers (question_id, text_response, respondent_name, respondent_role, respondents, notes, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
-      `, [questionId, text_response, respondent_name, respondent_role, notes, status || 'in_progress']);
+      `, [questionId, text_response, respondent_name, respondent_role, respondents ? JSON.stringify(respondents) : '[]', notes, status || 'in_progress']);
     }
 
     res.json(result.rows[0]);

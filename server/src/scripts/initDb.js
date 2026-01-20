@@ -102,6 +102,7 @@ const initDb = async () => {
         text_response TEXT,
         respondent_name VARCHAR(255),
         respondent_role VARCHAR(255),
+        respondents JSONB DEFAULT '[]'::jsonb,
         notes TEXT,
         observation TEXT,
         status VARCHAR(50) DEFAULT 'pending',
