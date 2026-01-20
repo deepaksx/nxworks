@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { getWorkshops, createWorkshop, deleteWorkshop } from '../services/workshopApi';
+import api from '../services/api';
 import {
   Plus,
   FolderOpen,
@@ -8,7 +9,10 @@ import {
   Trash2,
   Building2,
   FileText,
-  X
+  X,
+  Download,
+  Upload,
+  Database
 } from 'lucide-react';
 
 const statusColors = {
@@ -23,6 +27,9 @@ function Dashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newWorkshop, setNewWorkshop] = useState({ name: '', client_name: '' });
   const [creating, setCreating] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [restoreLoading, setRestoreLoading] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     loadWorkshops();
@@ -67,6 +74,58 @@ function Dashboard() {
     }
   };
 
+  const handleBackup = async () => {
+    setBackupLoading(true);
+    try {
+      const response = await api.get('/admin/backup');
+      const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `nxworks-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      alert('Backup downloaded successfully!');
+    } catch (error) {
+      console.error('Backup failed:', error);
+      alert('Failed to create backup: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const handleRestoreClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleRestore = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm('This will REPLACE all existing data with the backup. Are you sure?')) {
+      e.target.value = '';
+      return;
+    }
+
+    setRestoreLoading(true);
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+
+      const response = await api.post('/admin/restore', backup);
+      alert(`Restore completed!\n\n${response.data.message}`);
+      await loadWorkshops();
+    } catch (error) {
+      console.error('Restore failed:', error);
+      alert('Failed to restore backup: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setRestoreLoading(false);
+      e.target.value = '';
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[200px]">
@@ -77,19 +136,50 @@ function Dashboard() {
 
   return (
     <div className="space-y-4">
+      {/* Hidden file input for restore */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleRestore}
+        accept=".json"
+        className="hidden"
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Workshops</h1>
           <p className="text-sm text-gray-500">Manage your SAP S/4HANA pre-discovery workshops</p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-nxsys-500 text-white rounded-md hover:bg-nxsys-600 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Workshop</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          {/* Backup/Restore Buttons */}
+          <button
+            onClick={handleBackup}
+            disabled={backupLoading}
+            className="flex items-center space-x-1 px-3 py-2 text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50"
+            title="Download Backup"
+          >
+            <Download className="w-4 h-4" />
+            <span className="text-sm">{backupLoading ? 'Backing up...' : 'Backup'}</span>
+          </button>
+          <button
+            onClick={handleRestoreClick}
+            disabled={restoreLoading}
+            className="flex items-center space-x-1 px-3 py-2 text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50"
+            title="Restore from Backup"
+          >
+            <Upload className="w-4 h-4" />
+            <span className="text-sm">{restoreLoading ? 'Restoring...' : 'Restore'}</span>
+          </button>
+
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-nxsys-500 text-white rounded-md hover:bg-nxsys-600 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Workshop</span>
+          </button>
+        </div>
       </div>
 
       {/* Workshops Table */}

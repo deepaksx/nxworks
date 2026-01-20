@@ -762,4 +762,176 @@ router.post('/generated/:id/regenerate', async (req, res) => {
   }
 });
 
+// ============================================
+// Database Backup & Restore Endpoints
+// ============================================
+
+// Backup entire database to JSON
+router.get('/backup', async (req, res) => {
+  try {
+    console.log('Starting database backup...');
+
+    // Export all tables
+    const backup = {
+      version: '1.0',
+      created_at: new Date().toISOString(),
+      tables: {}
+    };
+
+    // List of tables to backup (in order for proper restore)
+    const tables = [
+      'global_workshop_config',
+      'global_audience_profiles',
+      'entities',
+      'sessions',
+      'workshop_participants',
+      'questions',
+      'generated_questions',
+      'answers',
+      'observations',
+      'audio_recordings',
+      'documents',
+      'session_reports'
+    ];
+
+    for (const table of tables) {
+      try {
+        const result = await db.query(`SELECT * FROM ${table}`);
+        backup.tables[table] = result.rows;
+        console.log(`Backed up ${table}: ${result.rows.length} rows`);
+      } catch (tableError) {
+        console.log(`Table ${table} not found or empty, skipping`);
+        backup.tables[table] = [];
+      }
+    }
+
+    // Set headers for file download
+    const filename = `nxworks-backup-${new Date().toISOString().split('T')[0]}.json`;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    res.json(backup);
+    console.log('Backup completed successfully');
+  } catch (error) {
+    console.error('Backup error:', error);
+    res.status(500).json({ error: 'Failed to create backup: ' + error.message });
+  }
+});
+
+// Restore database from JSON backup
+router.post('/restore', async (req, res) => {
+  try {
+    const backup = req.body;
+
+    if (!backup || !backup.tables) {
+      return res.status(400).json({ error: 'Invalid backup format' });
+    }
+
+    console.log('Starting database restore from backup created at:', backup.created_at);
+
+    // Tables in order (respecting foreign key constraints)
+    const restoreOrder = [
+      'global_workshop_config',
+      'global_audience_profiles',
+      'entities',
+      'sessions',
+      'workshop_participants',
+      'questions',
+      'generated_questions',
+      'answers',
+      'observations',
+      'audio_recordings',
+      'documents',
+      'session_reports'
+    ];
+
+    const results = {};
+
+    for (const table of restoreOrder) {
+      const rows = backup.tables[table];
+      if (!rows || rows.length === 0) {
+        results[table] = { status: 'skipped', count: 0 };
+        continue;
+      }
+
+      try {
+        // Clear existing data
+        await db.query(`DELETE FROM ${table}`);
+
+        // Get column names from first row
+        const columns = Object.keys(rows[0]);
+
+        // Insert each row
+        let insertedCount = 0;
+        for (const row of rows) {
+          const values = columns.map(col => row[col]);
+          const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+          const columnNames = columns.map(c => `"${c}"`).join(', ');
+
+          await db.query(
+            `INSERT INTO ${table} (${columnNames}) VALUES (${placeholders})`,
+            values
+          );
+          insertedCount++;
+        }
+
+        // Reset sequence for tables with serial IDs
+        if (rows.length > 0 && rows[0].id !== undefined) {
+          const maxId = Math.max(...rows.map(r => r.id));
+          await db.query(`SELECT setval(pg_get_serial_sequence('${table}', 'id'), $1, true)`, [maxId]);
+        }
+
+        results[table] = { status: 'restored', count: insertedCount };
+        console.log(`Restored ${table}: ${insertedCount} rows`);
+      } catch (tableError) {
+        console.error(`Error restoring ${table}:`, tableError.message);
+        results[table] = { status: 'error', error: tableError.message };
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Database restored successfully',
+      backup_date: backup.created_at,
+      results
+    });
+  } catch (error) {
+    console.error('Restore error:', error);
+    res.status(500).json({ error: 'Failed to restore backup: ' + error.message });
+  }
+});
+
+// Get list of available backup info (just returns current DB stats)
+router.get('/backup/stats', async (req, res) => {
+  try {
+    const stats = {};
+
+    const tables = [
+      'sessions',
+      'questions',
+      'answers',
+      'observations',
+      'entities',
+      'workshop_participants'
+    ];
+
+    for (const table of tables) {
+      try {
+        const result = await db.query(`SELECT COUNT(*) as count FROM ${table}`);
+        stats[table] = parseInt(result.rows[0].count);
+      } catch {
+        stats[table] = 0;
+      }
+    }
+
+    res.json({
+      stats,
+      total_records: Object.values(stats).reduce((a, b) => a + b, 0)
+    });
+  } catch (error) {
+    console.error('Error getting backup stats:', error);
+    res.status(500).json({ error: 'Failed to get stats' });
+  }
+});
+
 module.exports = router;
