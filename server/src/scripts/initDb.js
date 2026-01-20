@@ -5,8 +5,21 @@ const initDb = async () => {
   const client = await pool.connect();
 
   try {
-    console.log('Initializing database...');
+    console.log('Initializing database (fresh)...');
     await client.query('BEGIN');
+
+    // Drop all tables first for clean slate
+    console.log('Dropping existing tables...');
+    await client.query('DROP TABLE IF EXISTS session_reports CASCADE');
+    await client.query('DROP TABLE IF EXISTS observations CASCADE');
+    await client.query('DROP TABLE IF EXISTS audio_recordings CASCADE');
+    await client.query('DROP TABLE IF EXISTS documents CASCADE');
+    await client.query('DROP TABLE IF EXISTS answers CASCADE');
+    await client.query('DROP TABLE IF EXISTS questions CASCADE');
+    await client.query('DROP TABLE IF EXISTS workshop_participants CASCADE');
+    await client.query('DROP TABLE IF EXISTS sessions CASCADE');
+    await client.query('DROP TABLE IF EXISTS entities CASCADE');
+    await client.query('DROP TABLE IF EXISTS workshops CASCADE');
 
     // Create workshops table (top-level container)
     console.log('Creating workshops table...');
@@ -15,6 +28,7 @@ const initDb = async () => {
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         client_name VARCHAR(255),
+        client_website VARCHAR(500),
         industry_context TEXT,
         custom_instructions TEXT,
         questions_per_session INTEGER DEFAULT 30,
