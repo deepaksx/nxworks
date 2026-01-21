@@ -1,0 +1,392 @@
+/**
+ * Session Checklist Routes
+ *
+ * API endpoints for direct checklist mode:
+ * - Get checklist items (grouped by status)
+ * - Get checklist stats
+ * - Upload session audio
+ * - Transcribe and analyze audio
+ * - Manual item updates
+ */
+
+const express = require('express');
+const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { v4: uuidv4 } = require('uuid');
+const db = require('../models/db');
+const { isS3Configured, uploadBufferToS3 } = require('../services/s3');
+const {
+  analyzeTranscriptionAgainstChecklist,
+  markItemsAsObtained
+} = require('../services/directChecklistGenerator');
+
+// OpenAI for transcription
+const OpenAI = require('openai');
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Configure multer for audio uploads
+const getUploadDir = () => {
+  if (process.env.NODE_ENV === 'production') {
+    return '/tmp/uploads';
+  }
+  return path.join(__dirname, '../../uploads');
+};
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(getUploadDir(), 'session-audio');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${uuidv4()}${path.extname(file.originalname) || '.webm'}`;
+    cb(null, uniqueName);
+  }
+});
+
+const memoryStorage = multer.memoryStorage();
+
+const upload = multer({
+  storage: isS3Configured() ? memoryStorage : storage,
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB max
+});
+
+// ============================================
+// Get checklist items for a session
+// ============================================
+router.get('/session/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    // Get all checklist items grouped by status
+    const result = await db.query(`
+      SELECT *
+      FROM session_checklist_items
+      WHERE session_id = $1
+      ORDER BY item_number
+    `, [sessionId]);
+
+    const items = result.rows;
+    const missing = items.filter(i => i.status === 'missing');
+    const obtained = items.filter(i => i.status === 'obtained');
+
+    res.json({
+      missing,
+      obtained,
+      total: items.length
+    });
+  } catch (error) {
+    console.error('Error getting checklist:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Get checklist stats for a session
+// ============================================
+router.get('/session/:sessionId/stats', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const result = await db.query(`
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE status = 'missing') as missing,
+        COUNT(*) FILTER (WHERE status = 'obtained') as obtained,
+        COUNT(*) FILTER (WHERE importance = 'critical' AND status = 'missing') as critical_missing,
+        COUNT(*) FILTER (WHERE importance = 'critical' AND status = 'obtained') as critical_obtained,
+        COUNT(*) FILTER (WHERE importance = 'important' AND status = 'missing') as important_missing,
+        COUNT(*) FILTER (WHERE importance = 'important' AND status = 'obtained') as important_obtained
+      FROM session_checklist_items
+      WHERE session_id = $1
+    `, [sessionId]);
+
+    const stats = result.rows[0];
+
+    res.json({
+      total: parseInt(stats.total) || 0,
+      missing: parseInt(stats.missing) || 0,
+      obtained: parseInt(stats.obtained) || 0,
+      criticalMissing: parseInt(stats.critical_missing) || 0,
+      criticalObtained: parseInt(stats.critical_obtained) || 0,
+      importantMissing: parseInt(stats.important_missing) || 0,
+      importantObtained: parseInt(stats.important_obtained) || 0,
+      completionPercent: stats.total > 0
+        ? Math.round((parseInt(stats.obtained) / parseInt(stats.total)) * 100)
+        : 0
+    });
+  } catch (error) {
+    console.error('Error getting checklist stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Upload audio recording for session
+// ============================================
+router.post('/session/:sessionId/audio', upload.single('audio'), async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { duration_seconds, chunk_index } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No audio file provided' });
+    }
+
+    let filePath;
+    let fileName;
+
+    if (isS3Configured()) {
+      // Upload to S3
+      const uniqueName = `${uuidv4()}.webm`;
+      const s3Key = `uploads/session-audio/${uniqueName}`;
+      await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype || 'audio/webm');
+      filePath = s3Key;
+      fileName = uniqueName;
+    } else {
+      // Local storage
+      filePath = `uploads/session-audio/${req.file.filename}`;
+      fileName = req.file.filename;
+    }
+
+    // Save to database
+    const result = await db.query(`
+      INSERT INTO session_recordings
+        (session_id, file_path, file_name, mime_type, file_size, duration_seconds, chunk_index)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `, [
+      sessionId,
+      filePath,
+      fileName,
+      req.file.mimetype || 'audio/webm',
+      req.file.size,
+      parseInt(duration_seconds) || 0,
+      parseInt(chunk_index) || 0
+    ]);
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error uploading audio:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Transcribe and analyze session audio
+// ============================================
+router.post('/session/:sessionId/audio/:audioId/analyze', async (req, res) => {
+  try {
+    const { sessionId, audioId } = req.params;
+
+    // Get audio recording
+    const audioResult = await db.query(
+      'SELECT * FROM session_recordings WHERE id = $1 AND session_id = $2',
+      [audioId, sessionId]
+    );
+
+    if (audioResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Audio recording not found' });
+    }
+
+    const audio = audioResult.rows[0];
+
+    // Check if already transcribed
+    if (audio.transcription) {
+      // Already transcribed, just run analysis
+      const analysisResult = await analyzeTranscriptionAgainstChecklist(sessionId, audio.transcription);
+
+      // Mark items as obtained
+      if (analysisResult.obtainedItems.length > 0) {
+        await markItemsAsObtained(analysisResult.obtainedItems);
+      }
+
+      return res.json({
+        transcription: audio.transcription,
+        obtainedCount: analysisResult.obtainedItems.length,
+        remainingMissing: analysisResult.remainingMissing
+      });
+    }
+
+    // Transcribe the audio
+    let filePath = audio.file_path;
+    let tempFile = null;
+
+    // Handle S3 files
+    if (filePath.startsWith('uploads/') && isS3Configured()) {
+      const { GetObjectCommand } = require('@aws-sdk/client-s3');
+      const { getS3Client, getBucketName } = require('../services/s3');
+
+      const s3Client = getS3Client();
+      const response = await s3Client.send(new GetObjectCommand({
+        Bucket: getBucketName(),
+        Key: filePath
+      }));
+
+      // Save to temp file
+      tempFile = path.join('/tmp', `transcribe_${audioId}.webm`);
+      const writeStream = fs.createWriteStream(tempFile);
+      await new Promise((resolve, reject) => {
+        response.Body.pipe(writeStream);
+        response.Body.on('end', resolve);
+        response.Body.on('error', reject);
+      });
+      filePath = tempFile;
+    } else if (!path.isAbsolute(filePath)) {
+      filePath = path.join(__dirname, '../..', filePath);
+    }
+
+    // Transcribe with OpenAI Whisper
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(filePath),
+      model: 'whisper-1',
+      language: 'en',
+      response_format: 'text'
+    });
+
+    // Clean up temp file
+    if (tempFile && fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+    }
+
+    // Save transcription to database
+    await db.query(
+      'UPDATE session_recordings SET transcription = $1 WHERE id = $2',
+      [transcription, audioId]
+    );
+
+    // Analyze against checklist
+    const analysisResult = await analyzeTranscriptionAgainstChecklist(sessionId, transcription);
+
+    // Mark items as obtained
+    if (analysisResult.obtainedItems.length > 0) {
+      await markItemsAsObtained(analysisResult.obtainedItems);
+    }
+
+    res.json({
+      transcription,
+      obtainedCount: analysisResult.obtainedItems.length,
+      remainingMissing: analysisResult.remainingMissing,
+      obtainedItems: analysisResult.obtainedItems
+    });
+  } catch (error) {
+    console.error('Error transcribing/analyzing audio:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Manual update of checklist item
+// ============================================
+router.patch('/session/:sessionId/item/:itemId', async (req, res) => {
+  try {
+    const { sessionId, itemId } = req.params;
+    const { status, obtained_text, obtained_confidence } = req.body;
+
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (status) {
+      updates.push(`status = $${paramIndex++}`);
+      values.push(status);
+    }
+
+    if (obtained_text !== undefined) {
+      updates.push(`obtained_text = $${paramIndex++}`);
+      values.push(obtained_text);
+    }
+
+    if (obtained_confidence) {
+      updates.push(`obtained_confidence = $${paramIndex++}`);
+      values.push(obtained_confidence);
+    }
+
+    if (status === 'obtained') {
+      updates.push(`obtained_at = CURRENT_TIMESTAMP`);
+      updates.push(`obtained_source = 'manual'`);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+
+    values.push(itemId, sessionId);
+
+    const result = await db.query(`
+      UPDATE session_checklist_items
+      SET ${updates.join(', ')}
+      WHERE id = $${paramIndex++} AND session_id = $${paramIndex}
+      RETURNING *
+    `, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating checklist item:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Get all recordings for a session
+// ============================================
+router.get('/session/:sessionId/recordings', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const result = await db.query(`
+      SELECT *
+      FROM session_recordings
+      WHERE session_id = $1
+      ORDER BY chunk_index
+    `, [sessionId]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting recordings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Get checklist items by category
+// ============================================
+router.get('/session/:sessionId/by-category', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const result = await db.query(`
+      SELECT *
+      FROM session_checklist_items
+      WHERE session_id = $1
+      ORDER BY category, item_number
+    `, [sessionId]);
+
+    // Group by category
+    const byCategory = {};
+    for (const item of result.rows) {
+      const cat = item.category || 'General';
+      if (!byCategory[cat]) {
+        byCategory[cat] = { missing: [], obtained: [] };
+      }
+      if (item.status === 'obtained') {
+        byCategory[cat].obtained.push(item);
+      } else {
+        byCategory[cat].missing.push(item);
+      }
+    }
+
+    res.json(byCategory);
+  } catch (error) {
+    console.error('Error getting checklist by category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;

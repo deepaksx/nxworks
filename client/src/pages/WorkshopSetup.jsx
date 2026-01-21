@@ -143,8 +143,21 @@ function WorkshopSetup() {
   const [showGenerateConfirm, setShowGenerateConfirm] = useState(false);
   const [showSimpleGenerateConfirm, setShowSimpleGenerateConfirm] = useState(false);
 
+  // Direct Checklist Mode state
+  const [generatingChecklist, setGeneratingChecklist] = useState(false);
+  const [showChecklistConfirm, setShowChecklistConfirm] = useState(false);
+  const [checklistProgress, setChecklistProgress] = useState({
+    sessionCurrent: 0,
+    sessionTotal: 0,
+    sessionName: '',
+    phase: '',
+    message: '',
+    progress: 0
+  });
+
   // Check if any session has existing questions
   const hasExistingQuestions = sessions.some(s => s.questions_generated);
+  const hasExistingChecklists = sessions.some(s => s.checklist_generated);
 
   useEffect(() => {
     loadAllData();
@@ -321,6 +334,108 @@ function WorkshopSetup() {
         progress: 0,
         checklistCurrent: 0,
         checklistTotal: 0
+      });
+    }, 1500);
+  };
+
+  // Direct Checklist Mode handlers
+  const handleGenerateChecklistClick = () => {
+    if (sessions.length === 0) {
+      alert('Please add at least one session before generating a checklist.');
+      return;
+    }
+    if (!workshop.mission_statement || !workshop.mission_statement.trim()) {
+      alert('Please add a Mission Statement in the Workshop Configuration before generating a direct checklist.');
+      return;
+    }
+    setShowChecklistConfirm(true);
+  };
+
+  const handleGenerateChecklistConfirm = async () => {
+    setShowChecklistConfirm(false);
+    setGeneratingChecklist(true);
+    setChecklistProgress({
+      sessionCurrent: 0,
+      sessionTotal: sessions.length,
+      sessionName: '',
+      phase: 'init',
+      message: 'Starting...',
+      progress: 0
+    });
+
+    let successCount = 0;
+    let totalItems = 0;
+
+    for (let i = 0; i < sessions.length; i++) {
+      const session = sessions[i];
+
+      setChecklistProgress(prev => ({
+        ...prev,
+        sessionCurrent: i + 1,
+        sessionName: session.name,
+        phase: 'init',
+        message: `Starting session ${i + 1}...`,
+        progress: 0
+      }));
+
+      try {
+        // Use SSE endpoint for real-time progress
+        await new Promise((resolve, reject) => {
+          const eventSource = new EventSource(`/api/workshops/${workshopId}/sessions/${session.id}/generate-checklist-stream`);
+
+          eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            setChecklistProgress(prev => ({
+              ...prev,
+              sessionCurrent: i + 1,
+              sessionName: session.name,
+              phase: data.phase,
+              message: data.message,
+              progress: data.progress || prev.progress
+            }));
+
+            if (data.phase === 'complete') {
+              totalItems += data.itemCount || 0;
+              successCount++;
+              eventSource.close();
+              resolve();
+            } else if (data.phase === 'error') {
+              eventSource.close();
+              reject(new Error(data.message));
+            }
+          };
+
+          eventSource.onerror = () => {
+            eventSource.close();
+            reject(new Error('Connection lost'));
+          };
+        });
+      } catch (error) {
+        console.error(`Failed to generate checklist for session ${session.name}:`, error);
+        alert(`Error generating checklist for ${session.name}: ${error.message}`);
+      }
+    }
+
+    setChecklistProgress(prev => ({
+      ...prev,
+      sessionCurrent: sessions.length,
+      phase: 'complete',
+      message: 'All sessions complete!',
+      progress: 100
+    }));
+
+    setTimeout(() => {
+      alert(`Generated ${totalItems} checklist items across ${successCount} sessions.\n\nSessions are now in Direct Checklist Mode.`);
+      loadAllData();
+      setGeneratingChecklist(false);
+      setChecklistProgress({
+        sessionCurrent: 0,
+        sessionTotal: 0,
+        sessionName: '',
+        phase: '',
+        message: '',
+        progress: 0
       });
     }, 1500);
   };
@@ -518,11 +633,20 @@ function WorkshopSetup() {
           </button>
           <button
             onClick={handleGenerateQuestionsClick}
-            disabled={generating || sessions.length === 0}
+            disabled={generating || generatingChecklist || sessions.length === 0}
             className="flex items-center space-x-1.5 px-3 py-1.5 text-sm bg-gradient-to-r from-purple-500 to-nxsys-500 text-white rounded-lg hover:from-purple-600 hover:to-nxsys-600 disabled:opacity-50"
           >
             {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
             <span>{generating ? 'Generating...' : hasExistingQuestions ? 'Regenerate Questions' : 'Generate Questions'}</span>
+          </button>
+          <button
+            onClick={handleGenerateChecklistClick}
+            disabled={generating || generatingChecklist || sessions.length === 0 || !workshop.mission_statement}
+            title={!workshop.mission_statement ? 'Add a mission statement first' : 'Generate direct checklist from mission statement'}
+            className="flex items-center space-x-1.5 px-3 py-1.5 text-sm bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:from-indigo-600 hover:to-purple-600 disabled:opacity-50"
+          >
+            {generatingChecklist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <List className="w-3.5 h-3.5" />}
+            <span>{generatingChecklist ? 'Generating...' : hasExistingChecklists ? 'Regenerate Checklist' : 'Generate Direct Checklist'}</span>
           </button>
         </div>
       </div>
@@ -614,6 +738,22 @@ function WorkshopSetup() {
               )}
             </div>
           </div>
+        </div>
+        {/* Mission Statement for Direct Checklist Mode */}
+        <div className="mt-3 pt-3 border-t">
+          <label className="block text-xs font-medium text-gray-600 mb-0.5">
+            Mission Statement <span className="text-gray-400">(for Direct Checklist Mode)</span>
+          </label>
+          <textarea
+            value={workshop.mission_statement || ''}
+            onChange={(e) => setWorkshop({ ...workshop, mission_statement: e.target.value })}
+            placeholder="Define the workshop mission/goal. Example: Understand the complete procure-to-pay process including purchase requisitions, purchase orders, goods receipt, invoice verification, and payment processing for all business entities."
+            rows={2}
+            className="w-full px-2 py-1 border rounded text-sm focus:ring-purple-500 focus:border-purple-500"
+          />
+          <p className="text-xs text-gray-400 mt-0.5">
+            Required for "Generate Direct Checklist" - creates an exhaustive checklist directly without questions.
+          </p>
         </div>
       </section>
 
@@ -961,6 +1101,92 @@ Examples:
         title="Regenerate All Questions"
         description={`You are about to regenerate questions for all ${sessions.length} session(s). This will delete ALL existing questions, answers, audio recordings, and observations for every session.`}
       />
+
+      {/* Direct Checklist Confirmation Dialog */}
+      {showChecklistConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-indigo-500 to-purple-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <List className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Generate Direct Checklist</h3>
+                  <p className="text-purple-100 text-sm">Mission-Based Checklist Mode</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-gray-600 text-sm mb-4">
+                You are about to generate a <strong>direct checklist</strong> for <strong>{sessions.length} session(s)</strong> based on the mission statement.
+              </p>
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-4">
+                <p className="text-indigo-800 text-sm font-medium mb-1">Mission Statement:</p>
+                <p className="text-indigo-700 text-sm line-clamp-3">{workshop.mission_statement}</p>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <p className="text-purple-800 text-sm">
+                  <strong>Direct Checklist Mode:</strong> Instead of questions, the AI will generate an exhaustive checklist of items to gather. During the session, you can record audio and the system will automatically mark items as "obtained" when discussed.
+                </p>
+              </div>
+              {hasExistingChecklists && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mt-4">
+                  <p className="text-orange-800 text-sm">
+                    <strong>Warning:</strong> Existing checklist items will be replaced.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-3">
+              <button
+                onClick={() => setShowChecklistConfirm(false)}
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGenerateChecklistConfirm}
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:from-indigo-600 hover:to-purple-600 font-medium transition-colors"
+              >
+                Generate Checklist
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Checklist Generation Progress */}
+      {generatingChecklist && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-indigo-500 to-purple-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Loader2 className="w-6 h-6 text-white animate-spin" />
+                <div>
+                  <h3 className="text-lg font-bold text-white">Generating Checklist</h3>
+                  <p className="text-purple-100 text-sm">
+                    Session {checklistProgress.sessionCurrent} of {checklistProgress.sessionTotal}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <div className="mb-4">
+                <p className="text-sm font-medium text-gray-900 mb-1">{checklistProgress.sessionName}</p>
+                <p className="text-sm text-gray-600">{checklistProgress.message}</p>
+              </div>
+              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-300"
+                  style={{ width: `${checklistProgress.progress}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-2 text-right">{checklistProgress.progress}%</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ const observationRouter = require('./routes/observation');
 const researchRouter = require('./routes/research');
 const reportsRouter = require('./routes/reports');
 const adminRouter = require('./routes/admin');
+const sessionChecklistRouter = require('./routes/sessionChecklist');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -43,6 +44,7 @@ app.use('/api/observation', observationRouter);
 app.use('/api/research', researchRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/session-checklist', sessionChecklistRouter);
 
 // Health check with env status
 app.get('/api/health', (req, res) => {

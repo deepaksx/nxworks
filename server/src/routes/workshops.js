@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../models/db');
 const { generateQuestions } = require('../services/questionGenerator');
 const { generateChecklistsForSession } = require('../services/checklistGenerator');
+const { generateDirectChecklist, saveChecklistItems } = require('../services/directChecklistGenerator');
 
 // ============================================
 // Workshop CRUD
@@ -46,15 +47,15 @@ router.get('/:id', async (req, res) => {
 // Create workshop
 router.post('/', async (req, res) => {
   try {
-    const { name, client_name, client_website, industry_context, custom_instructions, questions_per_session } = req.body;
+    const { name, client_name, client_website, industry_context, custom_instructions, questions_per_session, mission_statement } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'Workshop name is required' });
     }
     const result = await db.query(`
-      INSERT INTO workshops (name, client_name, client_website, industry_context, custom_instructions, questions_per_session)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO workshops (name, client_name, client_website, industry_context, custom_instructions, questions_per_session, mission_statement)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
-    `, [name, client_name, client_website, industry_context, custom_instructions, questions_per_session || 30]);
+    `, [name, client_name, client_website, industry_context, custom_instructions, questions_per_session || 30, mission_statement]);
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error creating workshop:', error);
@@ -66,7 +67,7 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, client_name, client_website, industry_context, custom_instructions, questions_per_session, status } = req.body;
+    const { name, client_name, client_website, industry_context, custom_instructions, questions_per_session, status, mission_statement } = req.body;
     const result = await db.query(`
       UPDATE workshops SET
         name = COALESCE($1, name),
@@ -76,10 +77,11 @@ router.put('/:id', async (req, res) => {
         custom_instructions = $5,
         questions_per_session = COALESCE($6, questions_per_session),
         status = COALESCE($7, status),
+        mission_statement = $8,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $8
+      WHERE id = $9
       RETURNING *
-    `, [name, client_name, client_website, industry_context, custom_instructions, questions_per_session, status, id]);
+    `, [name, client_name, client_website, industry_context, custom_instructions, questions_per_session, status, mission_statement, id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Workshop not found' });
     }
@@ -487,6 +489,89 @@ router.post('/:workshopId/sessions/:sessionId/generate', async (req, res) => {
   } catch (error) {
     console.error('Error generating questions:', error);
     res.status(500).json({ error: 'Failed to generate questions: ' + error.message });
+  }
+});
+
+// ============================================
+// Generate Direct Checklist for a Session (with SSE progress)
+// ============================================
+
+router.get('/:workshopId/sessions/:sessionId/generate-checklist-stream', async (req, res) => {
+  // Set up SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendEvent = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const { workshopId, sessionId } = req.params;
+
+    sendEvent({ phase: 'init', message: 'Starting checklist generation...' });
+
+    // Get workshop
+    const workshopResult = await db.query('SELECT * FROM workshops WHERE id = $1', [workshopId]);
+    if (workshopResult.rows.length === 0) {
+      sendEvent({ phase: 'error', message: 'Workshop not found' });
+      res.end();
+      return;
+    }
+    const workshop = workshopResult.rows[0];
+
+    // Check if mission statement exists
+    if (!workshop.mission_statement) {
+      sendEvent({ phase: 'error', message: 'Mission statement is required for direct checklist mode. Please add a mission statement in Workshop Setup.' });
+      res.end();
+      return;
+    }
+
+    // Get session
+    const sessionResult = await db.query('SELECT * FROM sessions WHERE id = $1', [sessionId]);
+    if (sessionResult.rows.length === 0) {
+      sendEvent({ phase: 'error', message: 'Session not found' });
+      res.end();
+      return;
+    }
+    const session = sessionResult.rows[0];
+
+    // Get entities
+    const entitiesResult = await db.query('SELECT * FROM entities WHERE workshop_id = $1', [workshopId]);
+    const entities = entitiesResult.rows;
+
+    sendEvent({ phase: 'generating', message: 'Generating exhaustive checklist with AI...', progress: 20 });
+
+    // Generate checklist items
+    const checklistItems = await generateDirectChecklist({
+      missionStatement: workshop.mission_statement,
+      module: session.module,
+      industryContext: workshop.industry_context,
+      customInstructions: workshop.custom_instructions,
+      sessionName: session.name,
+      topics: session.topics,
+      entities
+    });
+
+    sendEvent({ phase: 'saving', message: `Saving ${checklistItems.length} checklist items...`, progress: 80 });
+
+    // Save to database
+    const itemCount = await saveChecklistItems(sessionId, checklistItems);
+
+    sendEvent({
+      phase: 'complete',
+      message: `Done! Generated ${itemCount} checklist items.`,
+      progress: 100,
+      itemCount
+    });
+
+    res.end();
+
+  } catch (error) {
+    console.error('Error in generate-checklist-stream:', error);
+    sendEvent({ phase: 'error', message: error.message });
+    res.end();
   }
 });
 

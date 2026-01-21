@@ -11,6 +11,8 @@ const initDb = async () => {
     // Drop all tables first for clean slate
     console.log('Dropping existing tables...');
     await client.query('DROP TABLE IF EXISTS session_reports CASCADE');
+    await client.query('DROP TABLE IF EXISTS session_checklist_items CASCADE');
+    await client.query('DROP TABLE IF EXISTS session_recordings CASCADE');
     await client.query('DROP TABLE IF EXISTS observations CASCADE');
     await client.query('DROP TABLE IF EXISTS audio_recordings CASCADE');
     await client.query('DROP TABLE IF EXISTS documents CASCADE');
@@ -31,6 +33,7 @@ const initDb = async () => {
         client_website VARCHAR(500),
         industry_context TEXT,
         custom_instructions TEXT,
+        mission_statement TEXT,
         questions_per_session INTEGER DEFAULT 30,
         status VARCHAR(50) DEFAULT 'setup',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -70,6 +73,8 @@ const initDb = async () => {
         topics TEXT,
         question_count INTEGER DEFAULT 30,
         questions_generated BOOLEAN DEFAULT FALSE,
+        checklist_mode BOOLEAN DEFAULT FALSE,
+        checklist_generated BOOLEAN DEFAULT FALSE,
         status VARCHAR(50) DEFAULT 'not_started',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -174,6 +179,43 @@ const initDb = async () => {
       )
     `);
 
+    // Create session_checklist_items table (for direct checklist mode)
+    console.log('Creating session_checklist_items table...');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS session_checklist_items (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+        item_number INTEGER NOT NULL,
+        item_text TEXT NOT NULL,
+        importance VARCHAR(20) DEFAULT 'important',
+        category VARCHAR(255),
+        suggested_question TEXT,
+        status VARCHAR(20) DEFAULT 'missing',
+        obtained_text TEXT,
+        obtained_source VARCHAR(50),
+        obtained_confidence VARCHAR(20),
+        obtained_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create session_recordings table (for direct checklist mode)
+    console.log('Creating session_recordings table...');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS session_recordings (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+        file_path VARCHAR(500) NOT NULL,
+        file_name VARCHAR(255) NOT NULL,
+        mime_type VARCHAR(100),
+        file_size INTEGER,
+        duration_seconds INTEGER,
+        transcription TEXT,
+        chunk_index INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Create session_reports table
     console.log('Creating session_reports table...');
     await client.query(`
@@ -209,6 +251,9 @@ const initDb = async () => {
     await client.query('CREATE INDEX IF NOT EXISTS idx_documents_answer ON documents(answer_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_participants_session ON workshop_participants(session_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_reports_session ON session_reports(session_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_session_checklist_session ON session_checklist_items(session_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_session_checklist_status ON session_checklist_items(status)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_session_recordings_session ON session_recordings(session_id)');
 
     await client.query('COMMIT');
     console.log('\n========================================');

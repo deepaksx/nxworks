@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getSession, getQuestions, getSessionProgress, updateSessionStatus, getParticipants, getSessionReportStatus, generateReport } from '../services/api';
 import ParticipantsModal from '../components/ParticipantsModal';
+import ChecklistModeView from '../components/ChecklistModeView';
 import {
   ChevronLeft,
   CheckCircle,
@@ -184,6 +185,15 @@ function SessionView() {
         </div>
       </div>
 
+      {/* Checklist Mode View */}
+      {session.checklist_mode ? (
+        <ChecklistModeView
+          workshopId={workshopId}
+          sessionId={sessionId}
+          session={session}
+        />
+      ) : (
+      <>
       {/* Entity Tabs + Filters */}
       <div className="flex items-center justify-between bg-white rounded-lg p-2 shadow-sm border border-gray-100">
         <div className="flex items-center space-x-1">
@@ -400,6 +410,8 @@ function SessionView() {
             </p>
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -9,7 +9,10 @@
     "db:init": "node src/scripts/initDb.js",
     "db:seed": "node src/scripts/seedQuestions.js",
     "db:migrate:admin": "node src/scripts/migrateAdmin.js",
-    "db:migrate:admin-v2": "node src/scripts/migrateAdminV2.js"
+    "db:migrate:admin-v2": "node src/scripts/migrateAdminV2.js",
+    "backup": "node src/scripts/backup.js",
+    "restore": "node src/scripts/restore.js",
+    "migrate": "node src/scripts/migrate.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
