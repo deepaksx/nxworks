@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-const CHUNK_DURATION_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
 const CHUNK_DURATION_SECONDS = 5 * 60; // 5 minutes in seconds
 
 /**
@@ -10,8 +9,6 @@ const CHUNK_DURATION_SECONDS = 5 * 60; // 5 minutes in seconds
  */
 export function useChunkedRecording({
   onChunkReady,
-  onChunkProcessed,
-  onChunkError,
   onAllChunksComplete
 }) {
   // Recording state
@@ -21,29 +18,36 @@ export function useChunkedRecording({
   const [currentChunkTime, setCurrentChunkTime] = useState(0);
 
   // Chunk tracking
-  const [chunks, setChunks] = useState([]);
-  const [processingChunks, setProcessingChunks] = useState([]);
+  const [totalChunks, setTotalChunks] = useState(0);
   const [completedChunks, setCompletedChunks] = useState([]);
   const [failedChunks, setFailedChunks] = useState([]);
+  const [processingChunks, setProcessingChunks] = useState([]);
 
   // Session state
   const [sessionActive, setSessionActive] = useState(false);
-  const [sessionId, setSessionId] = useState(null);
 
-  // Refs
+  // Refs for mutable state
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
-  const chunkTimerRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
   const chunkCounterRef = useRef(0);
-  const currentChunkStartTimeRef = useRef(0);
-  const isStoppingRef = useRef(false);
+  const currentChunkTimeRef = useRef(0);
+  const pendingChunksRef = useRef([]); // Store chunks waiting to be processed
+  const isStoppedRef = useRef(false);
+  const onChunkReadyRef = useRef(onChunkReady);
+  const onAllChunksCompleteRef = useRef(onAllChunksComplete);
 
-  // Cleanup audio context and animation frames
+  // Keep callback refs updated
+  useEffect(() => {
+    onChunkReadyRef.current = onChunkReady;
+    onAllChunksCompleteRef.current = onAllChunksComplete;
+  }, [onChunkReady, onAllChunksComplete]);
+
+  // Cleanup audio context
   const cleanupAudioContext = useCallback(() => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -59,143 +63,154 @@ export function useChunkedRecording({
 
   // Setup audio level monitoring
   const setupAudioLevelMonitoring = useCallback((stream) => {
-    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-    analyserRef.current = audioContextRef.current.createAnalyser();
-    const source = audioContextRef.current.createMediaStreamSource(stream);
-    source.connect(analyserRef.current);
-    analyserRef.current.fftSize = 256;
+    try {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      source.connect(analyserRef.current);
+      analyserRef.current.fftSize = 256;
 
-    const updateAudioLevel = () => {
-      if (!analyserRef.current) return;
-      const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-      analyserRef.current.getByteFrequencyData(dataArray);
-      const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-      setAudioLevel(Math.min(100, average * 1.5));
-      animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
-    };
-    updateAudioLevel();
+      const updateAudioLevel = () => {
+        if (!analyserRef.current) return;
+        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+        analyserRef.current.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+        setAudioLevel(Math.min(100, average * 1.5));
+        animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
+      };
+      updateAudioLevel();
+    } catch (e) {
+      console.warn('Audio level monitoring not available:', e);
+    }
   }, []);
 
-  // Create a MediaRecorder instance
-  const createMediaRecorder = useCallback((stream) => {
+  // Process a single chunk
+  const processChunk = useCallback(async (chunkBlob, chunkIndex, duration) => {
+    console.log(`Processing chunk ${chunkIndex}, size: ${chunkBlob.size}, duration: ${duration}s`);
+
+    setProcessingChunks(prev => [...prev, chunkIndex]);
+
+    try {
+      if (onChunkReadyRef.current) {
+        const result = await onChunkReadyRef.current(chunkBlob, chunkIndex, duration);
+        setCompletedChunks(prev => [...prev, { index: chunkIndex, result, duration }]);
+        console.log(`Chunk ${chunkIndex} completed successfully`);
+        return { success: true, result };
+      }
+      return { success: true };
+    } catch (error) {
+      console.error(`Chunk ${chunkIndex} failed:`, error);
+      setFailedChunks(prev => [...prev, { index: chunkIndex, error: error.message }]);
+      return { success: false, error };
+    } finally {
+      setProcessingChunks(prev => prev.filter(i => i !== chunkIndex));
+    }
+  }, []);
+
+  // Create and setup a new MediaRecorder
+  const createAndStartRecorder = useCallback((stream, onDataAvailable) => {
     let mimeType = 'audio/webm;codecs=opus';
     if (!MediaRecorder.isTypeSupported(mimeType)) {
       mimeType = 'audio/webm';
       if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
     }
-    return new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-  }, []);
 
-  // Process a completed chunk
-  const processChunk = useCallback(async (chunkBlob, chunkIndex, duration) => {
-    const chunkId = `chunk-${sessionId}-${chunkIndex}`;
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
 
-    setProcessingChunks(prev => [...prev, { id: chunkId, index: chunkIndex }]);
-
-    try {
-      // Notify that chunk is ready for processing
-      if (onChunkReady) {
-        const result = await onChunkReady(chunkBlob, chunkIndex, duration);
-
-        setCompletedChunks(prev => [...prev, {
-          id: chunkId,
-          index: chunkIndex,
-          result,
-          duration
-        }]);
-
-        if (onChunkProcessed) {
-          onChunkProcessed(chunkIndex, result);
-        }
-      }
-    } catch (error) {
-      console.error(`Error processing chunk ${chunkIndex}:`, error);
-      setFailedChunks(prev => [...prev, {
-        id: chunkId,
-        index: chunkIndex,
-        error: error.message
-      }]);
-
-      if (onChunkError) {
-        onChunkError(chunkIndex, error);
-      }
-    } finally {
-      setProcessingChunks(prev => prev.filter(c => c.id !== chunkId));
-    }
-  }, [sessionId, onChunkReady, onChunkProcessed, onChunkError]);
-
-  // Finalize a chunk and start a new one
-  const splitChunk = useCallback(() => {
-    if (!mediaRecorderRef.current || isStoppingRef.current) return;
-
-    const currentChunkIndex = chunkCounterRef.current;
-    const chunkDuration = currentChunkTime;
-
-    console.log(`Splitting chunk ${currentChunkIndex} at ${chunkDuration} seconds`);
-
-    // Stop current recording to get the blob
-    mediaRecorderRef.current.stop();
-
-    // Create a handler for when the recorder stops
-    const handleStop = () => {
-      if (isStoppingRef.current) return;
-
-      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-
-      // Add to chunks list
-      setChunks(prev => [...prev, {
-        index: currentChunkIndex,
-        blob,
-        duration: chunkDuration,
-        status: 'pending'
-      }]);
-
-      // Start processing this chunk in background
-      processChunk(blob, currentChunkIndex, chunkDuration);
-
-      // Reset for next chunk
-      audioChunksRef.current = [];
-      chunkCounterRef.current += 1;
-      setCurrentChunkTime(0);
-      currentChunkStartTimeRef.current = recordingTime;
-
-      // Start a new MediaRecorder if still recording
-      if (!isStoppingRef.current && streamRef.current && streamRef.current.active) {
-        const newRecorder = createMediaRecorder(streamRef.current);
-
-        newRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) audioChunksRef.current.push(event.data);
-        };
-
-        newRecorder.start(1000);
-        mediaRecorderRef.current = newRecorder;
-
-        console.log(`Started new chunk ${chunkCounterRef.current}`);
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        onDataAvailable(event.data);
       }
     };
 
-    mediaRecorderRef.current.onstop = handleStop;
-  }, [currentChunkTime, recordingTime, processChunk, createMediaRecorder]);
+    recorder.start(1000); // Collect data every second
+    return recorder;
+  }, []);
 
-  // Start recording session
+  // Handle chunk completion (when recorder stops)
+  const finalizeChunk = useCallback((audioData, chunkIndex, duration, isFinal) => {
+    if (audioData.length === 0) {
+      console.log(`Chunk ${chunkIndex} has no data, skipping`);
+      return;
+    }
+
+    const blob = new Blob(audioData, { type: 'audio/webm' });
+    console.log(`Finalizing chunk ${chunkIndex}, size: ${blob.size}, duration: ${duration}s, isFinal: ${isFinal}`);
+
+    // Store chunk info
+    pendingChunksRef.current.push({
+      blob,
+      index: chunkIndex,
+      duration,
+      isFinal
+    });
+
+    setTotalChunks(prev => prev + 1);
+
+    // Process immediately
+    processChunk(blob, chunkIndex, duration);
+  }, [processChunk]);
+
+  // Split the current chunk and start a new one
+  const performSplit = useCallback(() => {
+    if (!mediaRecorderRef.current || !streamRef.current || isStoppedRef.current) {
+      console.log('Cannot split: recorder or stream not available');
+      return;
+    }
+
+    const currentIndex = chunkCounterRef.current;
+    const duration = currentChunkTimeRef.current;
+    const currentData = [...audioChunksRef.current];
+
+    console.log(`Performing split at chunk ${currentIndex}, duration: ${duration}s`);
+
+    // Stop current recorder
+    const oldRecorder = mediaRecorderRef.current;
+
+    // Reset for new chunk BEFORE stopping (to capture new data correctly)
+    audioChunksRef.current = [];
+    chunkCounterRef.current += 1;
+    currentChunkTimeRef.current = 0;
+    setCurrentChunkTime(0);
+
+    // Start new recorder immediately (before stopping old one to minimize gap)
+    if (streamRef.current.active && !isStoppedRef.current) {
+      const newRecorder = createAndStartRecorder(streamRef.current, (data) => {
+        audioChunksRef.current.push(data);
+      });
+      mediaRecorderRef.current = newRecorder;
+      console.log(`Started new recorder for chunk ${chunkCounterRef.current}`);
+    }
+
+    // Now stop old recorder and process its data
+    oldRecorder.onstop = () => {
+      console.log(`Old recorder stopped, finalizing chunk ${currentIndex}`);
+      finalizeChunk(currentData, currentIndex, duration, false);
+    };
+    oldRecorder.stop();
+
+  }, [createAndStartRecorder, finalizeChunk]);
+
+  // Start recording
   const startRecording = useCallback(async () => {
     try {
-      isStoppingRef.current = false;
+      console.log('Starting recording session');
 
-      // Generate session ID
-      const newSessionId = `session-${Date.now()}`;
-      setSessionId(newSessionId);
-
-      // Reset state
-      setChunks([]);
-      setProcessingChunks([]);
-      setCompletedChunks([]);
-      setFailedChunks([]);
+      // Reset all state
+      isStoppedRef.current = false;
       chunkCounterRef.current = 0;
+      currentChunkTimeRef.current = 0;
       audioChunksRef.current = [];
+      pendingChunksRef.current = [];
+
       setRecordingTime(0);
       setCurrentChunkTime(0);
-      currentChunkStartTimeRef.current = 0;
+      setTotalChunks(0);
+      setCompletedChunks([]);
+      setFailedChunks([]);
+      setProcessingChunks([]);
+      setSessionActive(true);
+      setIsRecording(true);
 
       // Get microphone stream
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -206,102 +221,117 @@ export function useChunkedRecording({
       // Setup audio level monitoring
       setupAudioLevelMonitoring(stream);
 
-      // Create MediaRecorder
-      const recorder = createMediaRecorder(stream);
+      // Create and start recorder
+      const recorder = createAndStartRecorder(stream, (data) => {
+        audioChunksRef.current.push(data);
+      });
       mediaRecorderRef.current = recorder;
 
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
-      };
-
-      recorder.start(1000);
-      setIsRecording(true);
-      setSessionActive(true);
-
-      // Start timers
+      // Start timer
       timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
-        setCurrentChunkTime(prev => prev + 1);
+        currentChunkTimeRef.current += 1;
+        setCurrentChunkTime(currentChunkTimeRef.current);
       }, 1000);
 
-      console.log('Recording started');
+      console.log('Recording started successfully');
     } catch (error) {
       console.error('Failed to start recording:', error);
+      setIsRecording(false);
+      setSessionActive(false);
       throw error;
     }
-  }, [setupAudioLevelMonitoring, createMediaRecorder]);
+  }, [setupAudioLevelMonitoring, createAndStartRecorder]);
 
-  // Stop recording session
+  // Stop recording
   const stopRecording = useCallback(() => {
-    if (!mediaRecorderRef.current || isStoppingRef.current) return;
+    if (isStoppedRef.current) {
+      console.log('Already stopped');
+      return;
+    }
 
-    isStoppingRef.current = true;
     console.log('Stopping recording session');
+    isStoppedRef.current = true;
 
-    // Clear timers
+    // Clear timer
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
 
-    const finalChunkIndex = chunkCounterRef.current;
-    const finalDuration = currentChunkTime;
+    const currentIndex = chunkCounterRef.current;
+    const duration = currentChunkTimeRef.current;
+    const currentData = [...audioChunksRef.current];
 
-    // Handle final chunk
-    mediaRecorderRef.current.onstop = () => {
-      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+    // Stop recorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      const recorder = mediaRecorderRef.current;
 
-      // Only process if there's actual content
-      if (blob.size > 0 && finalDuration > 0) {
-        setChunks(prev => [...prev, {
-          index: finalChunkIndex,
-          blob,
-          duration: finalDuration,
-          status: 'pending'
-        }]);
+      recorder.onstop = () => {
+        console.log(`Final recorder stopped, finalizing chunk ${currentIndex}`);
 
-        // Process final chunk
-        processChunk(blob, finalChunkIndex, finalDuration);
-      }
+        // Finalize the last chunk
+        if (currentData.length > 0 && duration > 0) {
+          finalizeChunk(currentData, currentIndex, duration, true);
+        } else {
+          console.log('No data in final chunk');
+          // If no chunks at all, still need to trigger completion
+          if (pendingChunksRef.current.length === 0) {
+            setSessionActive(false);
+          }
+        }
 
-      // Stop the stream
+        // Stop stream
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+        }
+
+        cleanupAudioContext();
+        setIsRecording(false);
+        mediaRecorderRef.current = null;
+      };
+
+      recorder.stop();
+    } else {
+      // Recorder already stopped
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
       }
-
       cleanupAudioContext();
       setIsRecording(false);
-
-      console.log('Recording session stopped');
-    };
-
-    mediaRecorderRef.current.stop();
-  }, [currentChunkTime, processChunk, cleanupAudioContext]);
-
-  // Check if we need to split the chunk
-  useEffect(() => {
-    if (isRecording && currentChunkTime >= CHUNK_DURATION_SECONDS && !isStoppingRef.current) {
-      console.log(`Chunk duration reached ${CHUNK_DURATION_SECONDS}s, splitting...`);
-      splitChunk();
+      setSessionActive(false);
     }
-  }, [isRecording, currentChunkTime, splitChunk]);
+  }, [finalizeChunk, cleanupAudioContext]);
 
-  // Check if all chunks are processed
+  // Auto-split effect
+  useEffect(() => {
+    if (isRecording && currentChunkTime >= CHUNK_DURATION_SECONDS && !isStoppedRef.current) {
+      console.log(`Auto-split triggered at ${currentChunkTime}s`);
+      performSplit();
+    }
+  }, [isRecording, currentChunkTime, performSplit]);
+
+  // Check for all chunks completion
   useEffect(() => {
     if (!sessionActive || isRecording) return;
 
-    const totalChunks = chunks.length;
-    const processedCount = completedChunks.length + failedChunks.length;
+    const total = totalChunks;
+    const completed = completedChunks.length;
+    const failed = failedChunks.length;
+    const processing = processingChunks.length;
 
-    if (totalChunks > 0 && processedCount === totalChunks && processingChunks.length === 0) {
-      console.log('All chunks processed');
-      if (onAllChunksComplete) {
-        onAllChunksComplete(completedChunks, failedChunks);
+    console.log(`Chunk status: total=${total}, completed=${completed}, failed=${failed}, processing=${processing}`);
+
+    if (total > 0 && (completed + failed) === total && processing === 0) {
+      console.log('All chunks processed, calling onAllChunksComplete');
+      if (onAllChunksCompleteRef.current) {
+        onAllChunksCompleteRef.current(completedChunks, failedChunks);
       }
       setSessionActive(false);
     }
-  }, [sessionActive, isRecording, chunks, completedChunks, failedChunks, processingChunks, onAllChunksComplete]);
+  }, [sessionActive, isRecording, totalChunks, completedChunks, failedChunks, processingChunks]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -323,11 +353,10 @@ export function useChunkedRecording({
     sessionActive,
 
     // Chunk tracking
-    chunks,
+    totalChunks,
     processingChunks,
     completedChunks,
     failedChunks,
-    totalChunks: chunks.length,
 
     // Actions
     startRecording,

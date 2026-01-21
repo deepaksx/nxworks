@@ -260,7 +260,6 @@ function QuestionView() {
     audioLevel,
     currentChunkTime,
     sessionActive,
-    chunks,
     processingChunks,
     completedChunks,
     totalChunks,
