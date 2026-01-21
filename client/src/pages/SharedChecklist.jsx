@@ -9,7 +9,8 @@ import {
   getShareChecklist,
   getShareChecklistStats,
   uploadShareAudio,
-  analyzeShareAudio
+  analyzeShareAudio,
+  getShareFindings
 } from '../services/shareApi';
 import {
   Mic,
@@ -25,7 +26,11 @@ import {
   User,
   Key,
   Building2,
-  Settings
+  Settings,
+  Lightbulb,
+  AlertCircle,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 // Chunk duration options
@@ -61,6 +66,7 @@ function SharedChecklist() {
     criticalObtained: 0,
     completionPercent: 0
   });
+  const [findings, setFindings] = useState({ all: [], stats: { total: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 } });
   const [activeTab, setActiveTab] = useState('missing');
   const [chunkProcessingStatus, setChunkProcessingStatus] = useState([]);
   const [chunkDuration, setChunkDuration] = useState(60);
@@ -146,12 +152,14 @@ function SharedChecklist() {
 
   const loadChecklist = async (tokenToUse = authToken) => {
     try {
-      const [checklistRes, statsRes] = await Promise.all([
+      const [checklistRes, statsRes, findingsRes] = await Promise.all([
         getShareChecklist(token, tokenToUse),
-        getShareChecklistStats(token, tokenToUse)
+        getShareChecklistStats(token, tokenToUse),
+        getShareFindings(token, tokenToUse).catch(() => ({ data: { all: [], stats: { total: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 } } }))
       ]);
       setChecklist(checklistRes.data);
       setStats(statsRes.data);
+      setFindings(findingsRes.data);
     } catch (err) {
       console.error('Error loading checklist:', err);
     }
@@ -548,6 +556,17 @@ function SharedChecklist() {
               <CheckCircle className="w-4 h-4 inline mr-2" />
               Obtained ({stats.obtained})
             </button>
+            <button
+              onClick={() => setActiveTab('findings')}
+              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                activeTab === 'findings'
+                  ? 'border-b-2 border-amber-500 text-amber-700 bg-amber-50'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Lightbulb className="w-4 h-4 inline mr-2" />
+              Findings ({findings.stats?.total || 0})
+            </button>
           </div>
 
           <div className="p-4 max-h-[60vh] overflow-y-auto">
@@ -653,6 +672,41 @@ function SharedChecklist() {
                 )}
               </div>
             )}
+
+            {activeTab === 'findings' && (
+              <div className="space-y-4">
+                {/* Findings stats */}
+                {findings.stats?.total > 0 && (
+                  <div className="flex items-center gap-4 text-xs mb-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                    <span className="flex items-center gap-1 text-red-600 font-medium">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      {findings.stats.highRisk} high risk
+                    </span>
+                    <span className="flex items-center gap-1 text-orange-600 font-medium">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      {findings.stats.mediumRisk} medium risk
+                    </span>
+                    <span className="flex items-center gap-1 text-green-600 font-medium">
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      {findings.stats.lowRisk} low risk
+                    </span>
+                  </div>
+                )}
+
+                {/* Findings list */}
+                {findings.all?.map(finding => (
+                  <FindingCard key={finding.id} finding={finding} />
+                ))}
+
+                {(!findings.all || findings.all.length === 0) && (
+                  <div className="text-center py-8 text-gray-500">
+                    <Lightbulb className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                    <p>No additional findings yet.</p>
+                    <p className="text-xs mt-1">Findings are captured when discussing topics outside the checklist.</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -712,6 +766,96 @@ function ItemCard({ item, type, importance }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Finding card component
+function FindingCard({ finding }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const riskColors = {
+    high: 'bg-red-50 border-red-200 text-red-800',
+    medium: 'bg-orange-50 border-orange-200 text-orange-800',
+    low: 'bg-green-50 border-green-200 text-green-800'
+  };
+
+  const typeLabels = {
+    process: 'Process',
+    pain_point: 'Pain Point',
+    integration: 'Integration',
+    compliance: 'Compliance',
+    performance: 'Performance',
+    workaround: 'Workaround',
+    requirement: 'Requirement',
+    other: 'Other'
+  };
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div
+        className="p-4 cursor-pointer hover:bg-gray-50"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <Lightbulb className="w-4 h-4 text-amber-500" />
+              <h4 className="font-medium text-gray-900">{finding.topic}</h4>
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${riskColors[finding.sap_risk_level] || riskColors.medium}`}>
+                {finding.sap_risk_level?.toUpperCase()} RISK
+              </span>
+              <span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
+                {typeLabels[finding.finding_type] || finding.finding_type}
+              </span>
+            </div>
+          </div>
+          <button className="text-gray-400 hover:text-gray-600">
+            {expanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </button>
+        </div>
+
+        {/* Brief details always visible */}
+        {finding.details && (
+          <p className="text-sm text-gray-600 mt-2 line-clamp-2">{finding.details}</p>
+        )}
+      </div>
+
+      {/* Expanded content */}
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
+          {finding.source_quote && (
+            <div className="bg-gray-50 rounded p-3 border-l-4 border-gray-300">
+              <p className="text-xs font-medium text-gray-500 mb-1">Source Quote</p>
+              <p className="text-sm text-gray-700 italic">"{finding.source_quote}"</p>
+            </div>
+          )}
+
+          {finding.sap_analysis && (
+            <div className="bg-blue-50 rounded p-3">
+              <p className="text-xs font-medium text-blue-700 mb-1">SAP Analysis</p>
+              <p className="text-sm text-gray-700">{finding.sap_analysis}</p>
+            </div>
+          )}
+
+          {finding.sap_recommendation && (
+            <div className="bg-green-50 rounded p-3">
+              <p className="text-xs font-medium text-green-700 mb-1">Recommendation</p>
+              <p className="text-sm text-gray-700">{finding.sap_recommendation}</p>
+            </div>
+          )}
+
+          {finding.sap_best_practice && (
+            <div className="bg-purple-50 rounded p-3">
+              <p className="text-xs font-medium text-purple-700 mb-1">SAP Best Practice</p>
+              <p className="text-sm text-gray-700">{finding.sap_best_practice}</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

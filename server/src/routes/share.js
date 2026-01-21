@@ -22,7 +22,9 @@ const db = require('../models/db');
 const { isS3Configured, uploadBufferToS3 } = require('../services/s3');
 const {
   analyzeTranscriptionAgainstChecklist,
-  markItemsAsObtained
+  markItemsAsObtained,
+  saveAdditionalFindings,
+  getSessionFindings
 } = require('../services/directChecklistGenerator');
 
 // OpenAI for transcription
@@ -563,14 +565,42 @@ router.post('/share/:token/audio/:audioId/analyze', verifyShareToken, async (req
       await markItemsAsObtained(analysisResult.obtainedItems);
     }
 
+    // Save additional findings if any
+    if (analysisResult.additionalFindings && analysisResult.additionalFindings.length > 0) {
+      await saveAdditionalFindings(sessionId, audioId, analysisResult.additionalFindings);
+    }
+
     res.json({
       transcription,
       obtainedCount: analysisResult.obtainedItems.length,
       remainingMissing: analysisResult.remainingMissing,
-      obtainedItems: analysisResult.obtainedItems
+      obtainedItems: analysisResult.obtainedItems,
+      findingsCount: analysisResult.additionalFindings?.length || 0
     });
   } catch (error) {
     console.error('Error transcribing/analyzing audio:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get additional findings
+router.get('/share/:token/findings', verifyShareToken, async (req, res) => {
+  try {
+    const { sessionId } = req.shareAuth;
+
+    const findings = await getSessionFindings(sessionId);
+
+    // Calculate stats
+    const stats = {
+      total: findings.length,
+      highRisk: findings.filter(f => f.sap_risk_level === 'high').length,
+      mediumRisk: findings.filter(f => f.sap_risk_level === 'medium').length,
+      lowRisk: findings.filter(f => f.sap_risk_level === 'low').length
+    };
+
+    res.json({ all: findings, stats });
+  } catch (error) {
+    console.error('Error getting findings:', error);
     res.status(500).json({ error: error.message });
   }
 });

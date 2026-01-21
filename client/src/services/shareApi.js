@@ -68,6 +68,10 @@ export const uploadShareAudio = (shareToken, authToken, formData) =>
 export const analyzeShareAudio = (shareToken, authToken, audioId) =>
   createShareApi(authToken).post(`/share/${shareToken}/audio/${audioId}/analyze`);
 
+// Get additional findings (requires auth)
+export const getShareFindings = (shareToken, authToken) =>
+  createShareApi(authToken).get(`/share/${shareToken}/findings`);
+
 export default {
   enableSharing,
   disableSharing,
@@ -80,5 +84,6 @@ export default {
   getShareChecklist,
   getShareChecklistStats,
   uploadShareAudio,
-  analyzeShareAudio
+  analyzeShareAudio,
+  getShareFindings
 };
