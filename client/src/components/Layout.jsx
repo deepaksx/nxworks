@@ -53,7 +53,7 @@ function Layout() {
           <div className="absolute w-2.5 h-2.5 rounded-full border-2 border-nxsys-500/20 bg-white" style={{ left: '90%', top: '28px', animation: 'nodePulse 6s ease-in-out infinite 2s' }}></div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 relative">
+        <div className="w-full mx-auto px-6 relative">
           <div className="flex justify-between items-center h-20">
             <Link to="/" className="flex items-center space-x-5">
               <img src="/nxsys-logo.png" alt="NXSYS" className="h-12 w-auto" />
@@ -91,7 +91,7 @@ function Layout() {
 
       {/* NXSYS Footer */}
       <footer className="bg-white border-t border-gray-200 py-3">
-        <div className="max-w-7xl mx-auto px-4 flex justify-between items-center text-xs">
+        <div className="w-full mx-auto px-6 flex justify-between items-center text-xs">
           <span className="text-gray-500">
             <span className="text-gray-900 font-semibold">NXSYS</span>
             <span className="text-nxsys-500 mx-2">|</span>
