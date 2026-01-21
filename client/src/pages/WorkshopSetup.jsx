@@ -28,10 +28,20 @@ import {
   Search,
   X,
   List,
-  Edit3
+  Edit3,
+  Share2,
+  Copy,
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import axios from 'axios';
 import CriticalConfirmDialog from '../components/CriticalConfirmDialog';
+import {
+  enableSharing,
+  disableSharing,
+  getShareStatus,
+  regeneratePassword
+} from '../services/shareApi';
 
 const moduleOptions = [
   // Finance & Controlling
@@ -154,6 +164,19 @@ function WorkshopSetup() {
     message: '',
     progress: 0
   });
+
+  // Share modal state
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareSession, setShareSession] = useState(null);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareData, setShareData] = useState({
+    enabled: false,
+    url: '',
+    username: '',
+    password: '',
+    token: ''
+  });
+  const [copySuccess, setCopySuccess] = useState('');
 
   // Check if any session has existing questions
   const hasExistingQuestions = sessions.some(s => s.questions_generated);
@@ -526,6 +549,125 @@ function WorkshopSetup() {
     }
   };
 
+  // Share modal functions
+  const openShareModal = async (session) => {
+    setShareSession(session);
+    setShareModalOpen(true);
+    setShareLoading(true);
+    setCopySuccess('');
+
+    try {
+      const response = await getShareStatus(workshopId, session.id);
+      const status = response.data;
+      setShareData({
+        enabled: status.enabled,
+        url: status.shareUrl || '',
+        username: status.username || 'participant',
+        password: '', // Password not returned on status check
+        token: status.shareUrl ? status.shareUrl.split('/share/')[1] : ''
+      });
+    } catch (error) {
+      console.error('Failed to get share status:', error);
+      setShareData({
+        enabled: false,
+        url: '',
+        username: 'participant',
+        password: '',
+        token: ''
+      });
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const closeShareModal = () => {
+    setShareModalOpen(false);
+    setShareSession(null);
+    setShareData({
+      enabled: false,
+      url: '',
+      username: '',
+      password: '',
+      token: ''
+    });
+    setCopySuccess('');
+  };
+
+  const handleToggleSharing = async () => {
+    if (!shareSession) return;
+    setShareLoading(true);
+
+    try {
+      if (shareData.enabled) {
+        // Disable sharing
+        await disableSharing(workshopId, shareSession.id);
+        setShareData({
+          enabled: false,
+          url: '',
+          username: '',
+          password: '',
+          token: ''
+        });
+      } else {
+        // Enable sharing
+        const response = await enableSharing(workshopId, shareSession.id, shareData.username || 'participant');
+        const data = response.data;
+        const baseUrl = window.location.origin;
+        setShareData({
+          enabled: true,
+          url: `${baseUrl}/share/${data.token}`,
+          username: data.username,
+          password: data.password,
+          token: data.token
+        });
+      }
+      // Reload sessions to update share_enabled status
+      const sessionsRes = await getSessions(workshopId);
+      setSessions(sessionsRes.data);
+    } catch (error) {
+      console.error('Failed to toggle sharing:', error);
+      alert('Failed to update sharing: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleRegeneratePassword = async () => {
+    if (!shareSession) return;
+    setShareLoading(true);
+
+    try {
+      const response = await regeneratePassword(workshopId, shareSession.id);
+      setShareData(prev => ({
+        ...prev,
+        password: response.data.password
+      }));
+    } catch (error) {
+      console.error('Failed to regenerate password:', error);
+      alert('Failed to regenerate password');
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const copyToClipboard = async (text, type) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopySuccess(type);
+      setTimeout(() => setCopySuccess(''), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  const copyAllCredentials = async () => {
+    const text = `Session: ${shareSession?.name}
+URL: ${shareData.url}
+Username: ${shareData.username}
+Password: ${shareData.password}`;
+    await copyToClipboard(text, 'all');
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -621,33 +763,6 @@ function WorkshopSetup() {
             <h1 className="text-lg font-bold text-gray-900">Workshop Setup</h1>
             <p className="text-xs text-gray-500">{workshop.name}</p>
           </div>
-        </div>
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={handleSaveWorkshop}
-            disabled={saving}
-            className="flex items-center space-x-1.5 px-3 py-1.5 text-sm bg-nxsys-500 text-white rounded-lg hover:bg-nxsys-600 disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saveSuccess ? <CheckCircle className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-            <span>{saveSuccess ? 'Saved!' : 'Save'}</span>
-          </button>
-          <button
-            onClick={handleGenerateQuestionsClick}
-            disabled={generating || generatingChecklist || sessions.length === 0}
-            className="flex items-center space-x-1.5 px-3 py-1.5 text-sm bg-gradient-to-r from-purple-500 to-nxsys-500 text-white rounded-lg hover:from-purple-600 hover:to-nxsys-600 disabled:opacity-50"
-          >
-            {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            <span>{generating ? 'Generating...' : hasExistingQuestions ? 'Regenerate Questions' : 'Generate Questions'}</span>
-          </button>
-          <button
-            onClick={handleGenerateChecklistClick}
-            disabled={generating || generatingChecklist || sessions.length === 0 || !workshop.mission_statement}
-            title={!workshop.mission_statement ? 'Add a mission statement first' : 'Generate direct checklist from mission statement'}
-            className="flex items-center space-x-1.5 px-3 py-1.5 text-sm bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:from-indigo-600 hover:to-purple-600 disabled:opacity-50"
-          >
-            {generatingChecklist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <List className="w-3.5 h-3.5" />}
-            <span>{generatingChecklist ? 'Generating...' : hasExistingChecklists ? 'Regenerate Checklist' : 'Generate Direct Checklist'}</span>
-          </button>
         </div>
       </div>
 
@@ -850,6 +965,13 @@ function WorkshopSetup() {
                       max={100}
                       className="w-12 px-1 py-0.5 border rounded text-xs"
                     />
+                    <button
+                      onClick={() => openShareModal(session)}
+                      className={`flex-shrink-0 p-1 rounded ${session.share_enabled ? 'text-green-600 bg-green-100 hover:bg-green-200' : 'text-blue-600 bg-blue-50 hover:bg-blue-100'}`}
+                      title={session.share_enabled ? 'Sharing enabled - Click to manage' : 'Share this session'}
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </button>
                     <button onClick={() => handleDeleteSession(session.id)} className="text-gray-400 hover:text-red-500 flex-shrink-0">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -898,20 +1020,39 @@ function WorkshopSetup() {
         </section>
       </div>
 
-      {/* Summary & Generate */}
-      <section className="bg-gradient-to-r from-purple-50 to-nxsys-50 rounded-lg border border-nxsys-200 p-3">
+      {/* Summary & Actions */}
+      <section className="bg-gradient-to-r from-purple-50 to-nxsys-50 rounded-lg border border-nxsys-200 p-4">
         <div className="flex items-center justify-between">
           <div>
             <span className="text-sm font-medium text-gray-900">{entities.length} entities, {sessions.length} sessions</span>
           </div>
-          <button
-            onClick={handleGenerateQuestionsClick}
-            disabled={generating || sessions.length === 0}
-            className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-purple-500 to-nxsys-500 text-white rounded-lg hover:from-purple-600 hover:to-nxsys-600 disabled:opacity-50 text-sm font-medium"
-          >
-            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            <span>{generating ? 'Generating...' : hasExistingQuestions ? 'Regenerate All Questions' : 'Generate All Questions'}</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleSaveWorkshop}
+              disabled={saving}
+              className="flex items-center space-x-1.5 px-4 py-2 bg-nxsys-500 text-white rounded-lg hover:bg-nxsys-600 disabled:opacity-50 text-sm font-medium"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saveSuccess ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+              <span>{saveSuccess ? 'Saved!' : 'Save'}</span>
+            </button>
+            <button
+              onClick={handleGenerateQuestionsClick}
+              disabled={generating || generatingChecklist || sessions.length === 0}
+              className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-purple-500 to-nxsys-500 text-white rounded-lg hover:from-purple-600 hover:to-nxsys-600 disabled:opacity-50 text-sm font-medium"
+            >
+              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              <span>{generating ? 'Generating...' : hasExistingQuestions ? 'Regenerate Questions' : 'Generate Questions'}</span>
+            </button>
+            <button
+              onClick={handleGenerateChecklistClick}
+              disabled={generating || generatingChecklist || sessions.length === 0 || !workshop.mission_statement}
+              title={!workshop.mission_statement ? 'Add a mission statement first' : 'Generate direct checklist from mission statement'}
+              className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:from-indigo-600 hover:to-purple-600 disabled:opacity-50 text-sm font-medium"
+            >
+              {generatingChecklist ? <Loader2 className="w-4 h-4 animate-spin" /> : <List className="w-4 h-4" />}
+              <span>{generatingChecklist ? 'Generating...' : hasExistingChecklists ? 'Regenerate Checklist' : 'Generate Checklist'}</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1183,6 +1324,213 @@ Examples:
                 />
               </div>
               <p className="text-xs text-gray-500 mt-2 text-right">{checklistProgress.progress}%</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share Session Modal */}
+      {shareModalOpen && shareSession && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b bg-gradient-to-r from-blue-500 to-nxsys-500 rounded-t-xl">
+              <div className="flex items-center gap-2">
+                <Share2 className="w-5 h-5 text-white" />
+                <h3 className="font-semibold text-white">Share Session</h3>
+              </div>
+              <button onClick={closeShareModal} className="p-1 hover:bg-white/20 rounded text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 space-y-4">
+              {/* Session Info */}
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-sm text-gray-600">
+                  <span className="font-medium text-gray-900">Session:</span> {shareSession.name}
+                </p>
+                <p className="text-sm text-gray-600">
+                  <span className="font-medium text-gray-900">Module:</span> {shareSession.module}
+                </p>
+              </div>
+
+              {/* Enable/Disable Toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-gray-900">Enable Sharing</p>
+                  <p className="text-xs text-gray-500">Allow external users to access this session</p>
+                </div>
+                <button
+                  onClick={handleToggleSharing}
+                  disabled={shareLoading}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    shareData.enabled ? 'bg-green-500' : 'bg-gray-300'
+                  } ${shareLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      shareData.enabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Share Details (shown when enabled) */}
+              {shareData.enabled && (
+                <div className="space-y-3 pt-2 border-t">
+                  {/* URL */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Share URL</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={shareData.url}
+                        readOnly
+                        className="flex-1 px-3 py-2 bg-gray-100 border rounded-lg text-sm text-gray-700 font-mono"
+                      />
+                      <button
+                        onClick={() => copyToClipboard(shareData.url, 'url')}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          copySuccess === 'url'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {copySuccess === 'url' ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      </button>
+                      <a
+                        href={shareData.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Username */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Username</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={shareData.username}
+                        readOnly
+                        className="flex-1 px-3 py-2 bg-gray-100 border rounded-lg text-sm text-gray-700"
+                      />
+                      <button
+                        onClick={() => copyToClipboard(shareData.username, 'username')}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          copySuccess === 'username'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {copySuccess === 'username' ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Password */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
+                    {shareData.password ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={shareData.password}
+                          readOnly
+                          className="flex-1 px-3 py-2 bg-gray-100 border rounded-lg text-sm text-gray-700 font-mono"
+                        />
+                        <button
+                          onClick={() => copyToClipboard(shareData.password, 'password')}
+                          className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            copySuccess === 'password'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          {copySuccess === 'password' ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={handleRegeneratePassword}
+                          disabled={shareLoading}
+                          className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                          title="Generate new password"
+                        >
+                          <RefreshCw className={`w-4 h-4 ${shareLoading ? 'animate-spin' : ''}`} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <div className="flex-1 px-3 py-2 bg-gray-50 border border-dashed rounded-lg text-sm text-gray-400 italic">
+                          Password not shown for security. Click to generate new one.
+                        </div>
+                        <button
+                          onClick={handleRegeneratePassword}
+                          disabled={shareLoading}
+                          className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 flex items-center gap-1"
+                          title="Generate new password"
+                        >
+                          <RefreshCw className={`w-4 h-4 ${shareLoading ? 'animate-spin' : ''}`} />
+                          <span className="text-sm">Generate</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Copy All Button (only show when password is available) */}
+                  {shareData.password && (
+                    <button
+                      onClick={copyAllCredentials}
+                      className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                        copySuccess === 'all'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      }`}
+                    >
+                      {copySuccess === 'all' ? (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4" />
+                          Copy All Credentials
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {/* Info about exclusive access */}
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-2">
+                    <p className="text-yellow-800 text-xs">
+                      <strong>Note:</strong> Only one user can access the shared session at a time.
+                      If someone is already using it, others will see a "Session in use" message.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {shareLoading && (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-6 h-6 animate-spin text-nxsys-500" />
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t bg-gray-50 rounded-b-xl">
+              <button
+                onClick={closeShareModal}
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

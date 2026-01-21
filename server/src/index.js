@@ -13,6 +13,7 @@ const researchRouter = require('./routes/research');
 const reportsRouter = require('./routes/reports');
 const adminRouter = require('./routes/admin');
 const sessionChecklistRouter = require('./routes/sessionChecklist');
+const shareRouter = require('./routes/share');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -45,6 +46,7 @@ app.use('/api/research', researchRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/session-checklist', sessionChecklistRouter);
+app.use('/api', shareRouter); // Share routes: /api/workshops/.../share/* and /api/share/*
 
 // Health check with env status
 app.get('/api/health', (req, res) => {

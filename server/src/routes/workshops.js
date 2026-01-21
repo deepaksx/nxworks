@@ -51,11 +51,29 @@ router.post('/', async (req, res) => {
     if (!name) {
       return res.status(400).json({ error: 'Workshop name is required' });
     }
-    const result = await db.query(`
-      INSERT INTO workshops (name, client_name, client_website, industry_context, custom_instructions, questions_per_session, mission_statement)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING *
-    `, [name, client_name, client_website, industry_context, custom_instructions, questions_per_session || 30, mission_statement]);
+
+    // Check if mission_statement column exists (for backwards compatibility before migration)
+    let hasMissionStatementColumn = true;
+    try {
+      await db.query("SELECT mission_statement FROM workshops LIMIT 1");
+    } catch (e) {
+      hasMissionStatementColumn = false;
+    }
+
+    let result;
+    if (hasMissionStatementColumn) {
+      result = await db.query(`
+        INSERT INTO workshops (name, client_name, client_website, industry_context, custom_instructions, questions_per_session, mission_statement)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING *
+      `, [name, client_name, client_website, industry_context, custom_instructions, questions_per_session || 30, mission_statement]);
+    } else {
+      result = await db.query(`
+        INSERT INTO workshops (name, client_name, client_website, industry_context, custom_instructions, questions_per_session)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `, [name, client_name, client_website, industry_context, custom_instructions, questions_per_session || 30]);
+    }
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error creating workshop:', error);
@@ -68,20 +86,46 @@ router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, client_name, client_website, industry_context, custom_instructions, questions_per_session, status, mission_statement } = req.body;
-    const result = await db.query(`
-      UPDATE workshops SET
-        name = COALESCE($1, name),
-        client_name = $2,
-        client_website = $3,
-        industry_context = $4,
-        custom_instructions = $5,
-        questions_per_session = COALESCE($6, questions_per_session),
-        status = COALESCE($7, status),
-        mission_statement = $8,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $9
-      RETURNING *
-    `, [name, client_name, client_website, industry_context, custom_instructions, questions_per_session, status, mission_statement, id]);
+
+    // Check if mission_statement column exists (for backwards compatibility before migration)
+    let hasMissionStatementColumn = true;
+    try {
+      await db.query("SELECT mission_statement FROM workshops LIMIT 1");
+    } catch (e) {
+      hasMissionStatementColumn = false;
+    }
+
+    let result;
+    if (hasMissionStatementColumn) {
+      result = await db.query(`
+        UPDATE workshops SET
+          name = COALESCE($1, name),
+          client_name = $2,
+          client_website = $3,
+          industry_context = $4,
+          custom_instructions = $5,
+          questions_per_session = COALESCE($6, questions_per_session),
+          status = COALESCE($7, status),
+          mission_statement = $8,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $9
+        RETURNING *
+      `, [name, client_name, client_website, industry_context, custom_instructions, questions_per_session, status, mission_statement, id]);
+    } else {
+      result = await db.query(`
+        UPDATE workshops SET
+          name = COALESCE($1, name),
+          client_name = $2,
+          client_website = $3,
+          industry_context = $4,
+          custom_instructions = $5,
+          questions_per_session = COALESCE($6, questions_per_session),
+          status = COALESCE($7, status),
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $8
+        RETURNING *
+      `, [name, client_name, client_website, industry_context, custom_instructions, questions_per_session, status, id]);
+    }
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Workshop not found' });
     }

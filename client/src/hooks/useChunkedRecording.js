@@ -1,15 +1,16 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-const CHUNK_DURATION_SECONDS = 5 * 60; // 5 minutes in seconds
+const DEFAULT_CHUNK_DURATION_SECONDS = 5 * 60; // 5 minutes in seconds
 
 /**
  * Hook for managing chunked audio recording with automatic splitting
- * When recording exceeds 5 minutes, it automatically splits and starts processing
+ * When recording exceeds the chunk duration, it automatically splits and starts processing
  * the completed chunk while continuing to record
  */
 export function useChunkedRecording({
   onChunkReady,
-  onAllChunksComplete
+  onAllChunksComplete,
+  chunkDurationSeconds = DEFAULT_CHUNK_DURATION_SECONDS
 }) {
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -160,33 +161,36 @@ export function useChunkedRecording({
 
     const currentIndex = chunkCounterRef.current;
     const duration = currentChunkTimeRef.current;
-    const currentData = [...audioChunksRef.current];
 
     console.log(`Performing split at chunk ${currentIndex}, duration: ${duration}s`);
 
-    // Stop current recorder
+    // Stop current recorder and wait for all data
     const oldRecorder = mediaRecorderRef.current;
+    mediaRecorderRef.current = null; // Prevent double-stop
 
-    // Reset for new chunk BEFORE stopping (to capture new data correctly)
-    audioChunksRef.current = [];
-    chunkCounterRef.current += 1;
-    currentChunkTimeRef.current = 0;
-    setCurrentChunkTime(0);
-
-    // Start new recorder immediately (before stopping old one to minimize gap)
-    if (streamRef.current.active && !isStoppedRef.current) {
-      const newRecorder = createAndStartRecorder(streamRef.current, (data) => {
-        audioChunksRef.current.push(data);
-      });
-      mediaRecorderRef.current = newRecorder;
-      console.log(`Started new recorder for chunk ${chunkCounterRef.current}`);
-    }
-
-    // Now stop old recorder and process its data
     oldRecorder.onstop = () => {
       console.log(`Old recorder stopped, finalizing chunk ${currentIndex}`);
-      finalizeChunk(currentData, currentIndex, duration, false);
+
+      // Finalize the completed chunk with ALL its data (including final ondataavailable)
+      const completedData = [...audioChunksRef.current];
+      finalizeChunk(completedData, currentIndex, duration, false);
+
+      // Now reset and start new recorder
+      audioChunksRef.current = [];
+      chunkCounterRef.current += 1;
+      currentChunkTimeRef.current = 0;
+      setCurrentChunkTime(0);
+
+      // Start new recorder if still recording
+      if (streamRef.current && streamRef.current.active && !isStoppedRef.current) {
+        const newRecorder = createAndStartRecorder(streamRef.current, (data) => {
+          audioChunksRef.current.push(data);
+        });
+        mediaRecorderRef.current = newRecorder;
+        console.log(`Started new recorder for chunk ${chunkCounterRef.current}`);
+      }
     };
+
     oldRecorder.stop();
 
   }, [createAndStartRecorder, finalizeChunk]);
@@ -307,11 +311,13 @@ export function useChunkedRecording({
 
   // Auto-split effect
   useEffect(() => {
-    if (isRecording && currentChunkTime >= CHUNK_DURATION_SECONDS && !isStoppedRef.current) {
-      console.log(`Auto-split triggered at ${currentChunkTime}s`);
+    // Only split if we have an active recorder (mediaRecorderRef.current is set)
+    // This prevents multiple splits while one is in progress
+    if (isRecording && currentChunkTime >= chunkDurationSeconds && !isStoppedRef.current && mediaRecorderRef.current) {
+      console.log(`Auto-split triggered at ${currentChunkTime}s (chunk duration: ${chunkDurationSeconds}s)`);
       performSplit();
     }
-  }, [isRecording, currentChunkTime, performSplit]);
+  }, [isRecording, currentChunkTime, chunkDurationSeconds, performSplit]);
 
   // Check for all chunks completion
   useEffect(() => {
@@ -364,7 +370,7 @@ export function useChunkedRecording({
 
     // Utilities
     formatTime: (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`,
-    chunkDurationSeconds: CHUNK_DURATION_SECONDS
+    chunkDurationSeconds
   };
 }
 

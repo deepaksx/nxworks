@@ -170,6 +170,60 @@ const runMigrations = async () => {
       console.log('  [SKIP] session_recordings table already exists');
     }
 
+    // ===========================================
+    // Migration 5: Add share columns to sessions
+    // ===========================================
+    console.log('\nMigration 5: sessions share columns');
+    if (await addColumnIfNotExists(client, 'sessions', 'share_enabled', 'BOOLEAN DEFAULT FALSE')) {
+      changesCount++;
+    }
+    if (await addColumnIfNotExists(client, 'sessions', 'share_token', 'VARCHAR(64) UNIQUE')) {
+      changesCount++;
+    }
+    if (await addColumnIfNotExists(client, 'sessions', 'share_username', 'VARCHAR(100)')) {
+      changesCount++;
+    }
+    if (await addColumnIfNotExists(client, 'sessions', 'share_password_hash', 'VARCHAR(255)')) {
+      changesCount++;
+    }
+    if (await addColumnIfNotExists(client, 'sessions', 'share_locked_by', 'VARCHAR(100)')) {
+      changesCount++;
+    }
+    if (await addColumnIfNotExists(client, 'sessions', 'share_locked_at', 'TIMESTAMP')) {
+      changesCount++;
+    }
+
+    // ===========================================
+    // Migration 6: Add session_additional_findings table
+    // ===========================================
+    console.log('\nMigration 6: session_additional_findings table');
+    if (!await tableExists(client, 'session_additional_findings')) {
+      await client.query(`
+        CREATE TABLE session_additional_findings (
+          id SERIAL PRIMARY KEY,
+          session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+          recording_id INTEGER REFERENCES session_recordings(id) ON DELETE CASCADE,
+          finding_type VARCHAR(50) DEFAULT 'general',
+          topic VARCHAR(500) NOT NULL,
+          details TEXT,
+          sap_analysis TEXT,
+          sap_recommendation TEXT,
+          sap_risk_level VARCHAR(20),
+          sap_best_practice TEXT,
+          source_quote TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('  [CREATE] session_additional_findings table');
+      changesCount++;
+
+      // Create index
+      await createIndexIfNotExists(client, 'idx_session_findings_session', 'session_additional_findings', 'session_id');
+      changesCount++;
+    } else {
+      console.log('  [SKIP] session_additional_findings table already exists');
+    }
+
     await client.query('COMMIT');
 
     console.log('\n========================================');
@@ -200,6 +254,15 @@ const runMigrations = async () => {
 
     const recordingsTable = await tableExists(client, 'session_recordings');
     console.log(`  - session_recordings table: ${recordingsTable ? 'EXISTS' : 'MISSING'}`);
+
+    const shareCols = await client.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'sessions' AND column_name LIKE 'share_%'
+    `);
+    console.log(`  - sessions.share_* columns: ${shareCols.rows.length} found`);
+
+    const findingsTable = await tableExists(client, 'session_additional_findings');
+    console.log(`  - session_additional_findings table: ${findingsTable ? 'EXISTS' : 'MISSING'}`);
 
     console.log('\n');
 

@@ -37,8 +37,20 @@ export const updateChecklistItem = (sessionId, itemId, data) =>
 export const getSessionRecordings = (sessionId) =>
   api.get(`/session/${sessionId}/recordings`);
 
+// Get additional findings for a session
+export const getSessionFindings = (sessionId) =>
+  api.get(`/session/${sessionId}/findings`);
+
+// Delete a finding
+export const deleteFinding = (sessionId, findingId) =>
+  api.delete(`/session/${sessionId}/findings/${findingId}`);
+
 // Generate checklist stream URL (for SSE)
 export const getGenerateChecklistStreamUrl = (workshopId, sessionId) =>
   `/api/workshops/${workshopId}/sessions/${sessionId}/generate-checklist-stream`;
+
+// Export checklist to Excel - returns URL for download
+export const getExportExcelUrl = (sessionId) =>
+  `/api/session-checklist/session/${sessionId}/export-excel`;
 
 export default api;

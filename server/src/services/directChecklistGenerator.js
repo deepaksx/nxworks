@@ -240,11 +240,12 @@ async function analyzeTranscriptionAgainstChecklist(sessionId, newTranscription)
   `, [sessionId]);
   const session = sessionResult.rows[0];
 
-  const prompt = `You are analyzing a workshop recording to identify which checklist items have been answered.
+  const prompt = `You are an expert SAP S/4HANA implementation consultant analyzing a workshop recording.
 
 **Workshop:** ${session.workshop_name}
 **Mission:** ${session.mission_statement || 'Not specified'}
 **Module:** ${session.module}
+**Industry Context:** ${session.industry_context || 'Not specified'}
 
 **Checklist Items Still Missing (need to find answers for these):**
 ${missingItems.map(item => `[ID:${item.id}] ${item.item_text}`).join('\n')}
@@ -255,13 +256,29 @@ ${allTranscriptions}
 **New Recording Transcription:**
 ${newTranscription}
 
-Analyze the transcription and identify which checklist items now have answers.
+You have TWO tasks:
 
-IMPORTANT:
+## TASK 1: Identify Checklist Items Answered
+Analyze the transcription and identify which checklist items now have answers.
 - Only mark an item as "obtained" if SPECIFIC, CONCRETE information was provided
 - Extract the ACTUAL DATA mentioned, not just acknowledgment that it was discussed
 - If information is partial or unclear, still mark as obtained but note the limitation
-- Be thorough - look for information that answers items even if not directly asked
+
+## TASK 2: Capture Additional Findings (CRITICAL)
+Identify ANY topics, processes, pain points, or information discussed that are NOT covered by the checklist items above. These could be:
+- Business processes mentioned that weren't on the checklist
+- Pain points or challenges the client mentioned
+- Current workarounds or manual processes
+- Integration requirements
+- Compliance or regulatory concerns
+- Performance issues
+- User experience complaints
+- Any other relevant information
+
+For EACH additional finding, provide SAP best practice analysis:
+- What is the SAP recommendation for handling this?
+- What are the risks if not addressed properly?
+- What SAP functionality or solution addresses this?
 
 **Output Format - JSON:**
 \`\`\`json
@@ -273,27 +290,117 @@ IMPORTANT:
       "confidence": "high|medium|low",
       "source_quote": "Brief relevant quote from transcription"
     }
+  ],
+  "additional_findings": [
+    {
+      "topic": "Brief topic title (e.g., 'Manual Excel reconciliation process')",
+      "finding_type": "process|pain_point|integration|compliance|performance|workaround|requirement|other",
+      "details": "Detailed description of what was discussed",
+      "source_quote": "Relevant quote from transcription",
+      "sap_analysis": "Analysis from SAP implementation perspective - what does this mean for the project?",
+      "sap_recommendation": "Specific SAP best practice recommendation",
+      "sap_best_practice": "Relevant SAP standard functionality or solution (e.g., 'SAP Fiori app F0859 for bank reconciliation')",
+      "sap_risk_level": "high|medium|low",
+      "risk_explanation": "Why this is a risk if not addressed"
+    }
   ]
 }
 \`\`\`
 
-Return ONLY valid JSON, no other text.`;
+IMPORTANT:
+- Be thorough in capturing additional findings - the client may mention valuable information casually
+- If no additional findings, return an empty array
+- Return ONLY valid JSON, no other text.`;
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
+    max_tokens: 6000,
     messages: [{ role: 'user', content: prompt }]
   });
 
   let rawContent = response.content[0].text;
   rawContent = rawContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
-  const result = JSON.parse(rawContent);
+  let result;
+  try {
+    result = JSON.parse(rawContent);
+  } catch (parseError) {
+    console.error('JSON parse error:', parseError.message);
+    console.error('Raw content (first 500 chars):', rawContent.substring(0, 500));
+
+    // Try to fix common JSON issues
+    try {
+      // Remove any trailing content after the last }
+      const lastBrace = rawContent.lastIndexOf('}');
+      if (lastBrace > 0) {
+        rawContent = rawContent.substring(0, lastBrace + 1);
+      }
+      // Try to fix unescaped quotes in strings
+      rawContent = rawContent.replace(/(?<!\\)"\s*:\s*"([^"]*?)(?<!\\)"/g, (match, p1) => {
+        return '": "' + p1.replace(/(?<!\\)"/g, '\\"') + '"';
+      });
+      result = JSON.parse(rawContent);
+    } catch (retryError) {
+      console.error('JSON retry parse also failed:', retryError.message);
+      // Return empty result instead of crashing
+      return {
+        obtainedItems: [],
+        additionalFindings: [],
+        remainingMissing: missingItems.length
+      };
+    }
+  }
 
   return {
     obtainedItems: result.obtained_items || [],
+    additionalFindings: result.additional_findings || [],
     remainingMissing: missingItems.length - (result.obtained_items?.length || 0)
   };
+}
+
+/**
+ * Save additional findings to database
+ */
+async function saveAdditionalFindings(sessionId, recordingId, findings) {
+  const savedFindings = [];
+
+  for (const finding of findings) {
+    const result = await db.query(`
+      INSERT INTO session_additional_findings
+        (session_id, recording_id, finding_type, topic, details, sap_analysis,
+         sap_recommendation, sap_risk_level, sap_best_practice, source_quote)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING *
+    `, [
+      sessionId,
+      recordingId,
+      finding.finding_type || 'general',
+      finding.topic,
+      finding.details,
+      finding.sap_analysis,
+      finding.sap_recommendation,
+      finding.sap_risk_level || 'medium',
+      finding.sap_best_practice,
+      finding.source_quote
+    ]);
+    savedFindings.push(result.rows[0]);
+  }
+
+  return savedFindings;
+}
+
+/**
+ * Get all additional findings for a session
+ */
+async function getSessionFindings(sessionId) {
+  const result = await db.query(`
+    SELECT f.*, r.chunk_index, r.created_at as recording_created_at
+    FROM session_additional_findings f
+    LEFT JOIN session_recordings r ON f.recording_id = r.id
+    WHERE f.session_id = $1
+    ORDER BY f.created_at DESC
+  `, [sessionId]);
+  return result.rows;
 }
 
 /**
@@ -360,5 +467,7 @@ module.exports = {
   generateDirectChecklist,
   analyzeTranscriptionAgainstChecklist,
   saveChecklistItems,
-  markItemsAsObtained
+  markItemsAsObtained,
+  saveAdditionalFindings,
+  getSessionFindings
 };

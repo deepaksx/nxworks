@@ -15,11 +15,14 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const XLSX = require('xlsx');
 const db = require('../models/db');
 const { isS3Configured, uploadBufferToS3 } = require('../services/s3');
 const {
   analyzeTranscriptionAgainstChecklist,
-  markItemsAsObtained
+  markItemsAsObtained,
+  saveAdditionalFindings,
+  getSessionFindings
 } = require('../services/directChecklistGenerator');
 
 // OpenAI for transcription
@@ -203,10 +206,17 @@ router.post('/session/:sessionId/audio/:audioId/analyze', async (req, res) => {
         await markItemsAsObtained(analysisResult.obtainedItems);
       }
 
+      // Save additional findings
+      let savedFindings = [];
+      if (analysisResult.additionalFindings && analysisResult.additionalFindings.length > 0) {
+        savedFindings = await saveAdditionalFindings(sessionId, audioId, analysisResult.additionalFindings);
+      }
+
       return res.json({
         transcription: audio.transcription,
         obtainedCount: analysisResult.obtainedItems.length,
-        remainingMissing: analysisResult.remainingMissing
+        remainingMissing: analysisResult.remainingMissing,
+        additionalFindings: savedFindings.length
       });
     }
 
@@ -238,6 +248,18 @@ router.post('/session/:sessionId/audio/:audioId/analyze', async (req, res) => {
       filePath = path.join(__dirname, '../..', filePath);
     }
 
+    // Verify file exists and has content
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`Audio file not found at path: ${filePath}`);
+    }
+
+    const fileStats = fs.statSync(filePath);
+    if (fileStats.size === 0) {
+      throw new Error('Audio file is empty');
+    }
+
+    console.log(`Transcribing file: ${filePath}, size: ${fileStats.size} bytes`);
+
     // Transcribe with OpenAI Whisper
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(filePath),
@@ -265,11 +287,19 @@ router.post('/session/:sessionId/audio/:audioId/analyze', async (req, res) => {
       await markItemsAsObtained(analysisResult.obtainedItems);
     }
 
+    // Save additional findings
+    let savedFindings = [];
+    if (analysisResult.additionalFindings && analysisResult.additionalFindings.length > 0) {
+      savedFindings = await saveAdditionalFindings(sessionId, audioId, analysisResult.additionalFindings);
+    }
+
     res.json({
       transcription,
       obtainedCount: analysisResult.obtainedItems.length,
       remainingMissing: analysisResult.remainingMissing,
-      obtainedItems: analysisResult.obtainedItems
+      obtainedItems: analysisResult.obtainedItems,
+      additionalFindings: savedFindings.length,
+      findings: savedFindings
     });
   } catch (error) {
     console.error('Error transcribing/analyzing audio:', error);
@@ -385,6 +415,247 @@ router.get('/session/:sessionId/by-category', async (req, res) => {
     res.json(byCategory);
   } catch (error) {
     console.error('Error getting checklist by category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Get additional findings for a session
+// ============================================
+router.get('/session/:sessionId/findings', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const findings = await getSessionFindings(sessionId);
+
+    // Group findings by type
+    const grouped = {
+      all: findings,
+      byType: {},
+      byRiskLevel: { high: [], medium: [], low: [] },
+      stats: {
+        total: findings.length,
+        highRisk: 0,
+        mediumRisk: 0,
+        lowRisk: 0
+      }
+    };
+
+    for (const finding of findings) {
+      // Group by type
+      const type = finding.finding_type || 'general';
+      if (!grouped.byType[type]) {
+        grouped.byType[type] = [];
+      }
+      grouped.byType[type].push(finding);
+
+      // Group by risk level
+      const risk = finding.sap_risk_level || 'medium';
+      if (grouped.byRiskLevel[risk]) {
+        grouped.byRiskLevel[risk].push(finding);
+        grouped.stats[`${risk}Risk`]++;
+      }
+    }
+
+    res.json(grouped);
+  } catch (error) {
+    console.error('Error getting findings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Delete a finding
+// ============================================
+router.delete('/session/:sessionId/findings/:findingId', async (req, res) => {
+  try {
+    const { sessionId, findingId } = req.params;
+
+    await db.query(
+      'DELETE FROM session_additional_findings WHERE id = $1 AND session_id = $2',
+      [findingId, sessionId]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting finding:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Export checklist to Excel
+// ============================================
+router.get('/session/:sessionId/export-excel', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    // Get session info
+    const sessionResult = await db.query(`
+      SELECT s.name as session_name, s.module, w.name as workshop_name, w.client_name
+      FROM sessions s
+      JOIN workshops w ON s.workshop_id = w.id
+      WHERE s.id = $1
+    `, [sessionId]);
+
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const sessionInfo = sessionResult.rows[0];
+
+    // Get missing items
+    const missingResult = await db.query(`
+      SELECT item_number, item_text, importance, category, suggested_question
+      FROM session_checklist_items
+      WHERE session_id = $1 AND status = 'missing'
+      ORDER BY
+        CASE importance
+          WHEN 'critical' THEN 1
+          WHEN 'important' THEN 2
+          ELSE 3
+        END,
+        item_number
+    `, [sessionId]);
+
+    // Get obtained items
+    const obtainedResult = await db.query(`
+      SELECT item_number, item_text, importance, category, obtained_text,
+             obtained_source, obtained_confidence, obtained_at
+      FROM session_checklist_items
+      WHERE session_id = $1 AND status = 'obtained'
+      ORDER BY
+        CASE importance
+          WHEN 'critical' THEN 1
+          WHEN 'important' THEN 2
+          ELSE 3
+        END,
+        item_number
+    `, [sessionId]);
+
+    // Get additional findings
+    const findingsResult = await db.query(`
+      SELECT topic, finding_type, details, sap_analysis, sap_recommendation,
+             sap_best_practice, sap_risk_level, source_quote, created_at
+      FROM session_additional_findings
+      WHERE session_id = $1
+      ORDER BY
+        CASE sap_risk_level
+          WHEN 'high' THEN 1
+          WHEN 'medium' THEN 2
+          ELSE 3
+        END,
+        created_at DESC
+    `, [sessionId]);
+
+    // Create workbook
+    const workbook = XLSX.utils.book_new();
+
+    // Sheet 1: Missing Items
+    const missingData = [
+      ['Missing Checklist Items'],
+      ['Workshop:', sessionInfo.workshop_name, 'Client:', sessionInfo.client_name],
+      ['Session:', sessionInfo.session_name, 'Module:', sessionInfo.module],
+      [],
+      ['#', 'Item', 'Importance', 'Category', 'Suggested Question']
+    ];
+    missingResult.rows.forEach(item => {
+      missingData.push([
+        item.item_number,
+        item.item_text,
+        item.importance,
+        item.category || '',
+        item.suggested_question || ''
+      ]);
+    });
+    const missingSheet = XLSX.utils.aoa_to_sheet(missingData);
+    // Set column widths
+    missingSheet['!cols'] = [
+      { wch: 5 },   // #
+      { wch: 60 },  // Item
+      { wch: 12 },  // Importance
+      { wch: 25 },  // Category
+      { wch: 50 }   // Suggested Question
+    ];
+    XLSX.utils.book_append_sheet(workbook, missingSheet, 'Missing Items');
+
+    // Sheet 2: Obtained Items
+    const obtainedData = [
+      ['Obtained Checklist Items'],
+      ['Workshop:', sessionInfo.workshop_name, 'Client:', sessionInfo.client_name],
+      ['Session:', sessionInfo.session_name, 'Module:', sessionInfo.module],
+      [],
+      ['#', 'Item', 'Importance', 'Category', 'Obtained Information', 'Source', 'Confidence', 'Obtained At']
+    ];
+    obtainedResult.rows.forEach(item => {
+      obtainedData.push([
+        item.item_number,
+        item.item_text,
+        item.importance,
+        item.category || '',
+        item.obtained_text || '',
+        item.obtained_source || '',
+        item.obtained_confidence || '',
+        item.obtained_at ? new Date(item.obtained_at).toLocaleString() : ''
+      ]);
+    });
+    const obtainedSheet = XLSX.utils.aoa_to_sheet(obtainedData);
+    obtainedSheet['!cols'] = [
+      { wch: 5 },   // #
+      { wch: 50 },  // Item
+      { wch: 12 },  // Importance
+      { wch: 25 },  // Category
+      { wch: 60 },  // Obtained Information
+      { wch: 10 },  // Source
+      { wch: 12 },  // Confidence
+      { wch: 20 }   // Obtained At
+    ];
+    XLSX.utils.book_append_sheet(workbook, obtainedSheet, 'Obtained Items');
+
+    // Sheet 3: Additional Findings
+    const findingsData = [
+      ['Additional Findings - SAP Best Practice Analysis'],
+      ['Workshop:', sessionInfo.workshop_name, 'Client:', sessionInfo.client_name],
+      ['Session:', sessionInfo.session_name, 'Module:', sessionInfo.module],
+      [],
+      ['Topic', 'Type', 'Risk Level', 'Details', 'SAP Analysis', 'SAP Recommendation', 'SAP Best Practice', 'Source Quote']
+    ];
+    findingsResult.rows.forEach(finding => {
+      findingsData.push([
+        finding.topic,
+        finding.finding_type || '',
+        finding.sap_risk_level || '',
+        finding.details || '',
+        finding.sap_analysis || '',
+        finding.sap_recommendation || '',
+        finding.sap_best_practice || '',
+        finding.source_quote || ''
+      ]);
+    });
+    const findingsSheet = XLSX.utils.aoa_to_sheet(findingsData);
+    findingsSheet['!cols'] = [
+      { wch: 35 },  // Topic
+      { wch: 15 },  // Type
+      { wch: 12 },  // Risk Level
+      { wch: 50 },  // Details
+      { wch: 50 },  // SAP Analysis
+      { wch: 50 },  // SAP Recommendation
+      { wch: 40 },  // SAP Best Practice
+      { wch: 40 }   // Source Quote
+    ];
+    XLSX.utils.book_append_sheet(workbook, findingsSheet, 'Additional Findings');
+
+    // Generate buffer
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    // Set headers and send file
+    const filename = `${sessionInfo.session_name.replace(/[^a-zA-Z0-9]/g, '_')}_Checklist_Report.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('Error exporting to Excel:', error);
     res.status(500).json({ error: error.message });
   }
 });

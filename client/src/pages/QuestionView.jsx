@@ -44,8 +44,19 @@ import {
   TrendingUp,
   Target,
   HelpCircle,
-  ArrowRight
+  ArrowRight,
+  Settings
 } from 'lucide-react';
+
+// Chunk duration options in seconds
+const CHUNK_DURATION_OPTIONS = [
+  { value: 60, label: '1 minute' },
+  { value: 2 * 60, label: '2 minutes' },
+  { value: 3 * 60, label: '3 minutes' },
+  { value: 5 * 60, label: '5 minutes' },
+  { value: 10 * 60, label: '10 minutes' },
+  { value: 15 * 60, label: '15 minutes' }
+];
 import CriticalConfirmDialog from '../components/CriticalConfirmDialog';
 
 const entityColors = {
@@ -103,11 +114,33 @@ function QuestionView() {
   // Critical confirmation dialog state
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
+  // Recording settings state
+  const [showSettings, setShowSettings] = useState(false);
+  const [chunkDuration, setChunkDuration] = useState(60); // Default 1 minute
+  const settingsRef = useRef(null);
+
   // Keep refs updated for use in callbacks
   useEffect(() => {
     questionRef.current = question;
     textResponseRef.current = textResponse;
   }, [question, textResponse]);
+
+  // Close settings dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target)) {
+        setShowSettings(false);
+      }
+    };
+
+    if (showSettings) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showSettings]);
 
   // Callback when a chunk is ready for processing
   const handleChunkReady = useCallback(async (blob, chunkIndex, duration) => {
@@ -247,7 +280,8 @@ function QuestionView() {
     chunkDurationSeconds
   } = useChunkedRecording({
     onChunkReady: handleChunkReady,
-    onAllChunksComplete: handleAllChunksComplete
+    onAllChunksComplete: handleAllChunksComplete,
+    chunkDurationSeconds: chunkDuration
   });
 
   useEffect(() => {
@@ -938,6 +972,39 @@ function QuestionView() {
                       {generatingInitialChecklist ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
                     </button>
                   )}
+                  {/* Settings dropdown */}
+                  <div className="relative" ref={settingsRef}>
+                    <button
+                      onClick={() => setShowSettings(!showSettings)}
+                      disabled={isRecording}
+                      className="flex items-center gap-1.5 px-2 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                      title="Recording Settings"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                    {showSettings && !isRecording && (
+                      <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50 p-4">
+                        <h4 className="text-sm font-medium text-gray-900 mb-3">Recording Settings</h4>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Chunk Duration
+                          </label>
+                          <select
+                            value={chunkDuration}
+                            onChange={(e) => setChunkDuration(Number(e.target.value))}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
+                          >
+                            {CHUNK_DURATION_OPTIONS.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Audio is transcribed and analyzed after each chunk completes.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   {!isRecording ? (
                     <button onClick={startRecording} disabled={processingAudio || generatingInitialChecklist || sessionActive || isSessionProcessing}
                       className="flex items-center gap-1.5 px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 shadow-sm">
