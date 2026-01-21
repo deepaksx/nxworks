@@ -171,10 +171,26 @@ function QuestionView() {
         return newTranscriptions;
       });
 
+      // Analyze immediately after transcription
+      setChunkProcessingStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[chunkIndex] = { status: 'analyzing', step: 3 };
+        return newStatus;
+      });
+
+      try {
+        await createObservation(questionId);
+        // Reload data to show updated observations
+        if (loadDataRef.current) await loadDataRef.current();
+      } catch (analysisError) {
+        console.error(`Analysis for chunk ${chunkIndex} failed:`, analysisError);
+        // Continue even if analysis fails - transcription is saved
+      }
+
       // Mark as complete
       setChunkProcessingStatus(prev => {
         const newStatus = [...prev];
-        newStatus[chunkIndex] = { status: 'complete', step: 3 };
+        newStatus[chunkIndex] = { status: 'complete', step: 4 };
         return newStatus;
       });
 
@@ -189,7 +205,7 @@ function QuestionView() {
     }
   }, [questionId, selectedRespondents, respondentName, respondentRole, notes]);
 
-  // Callback when all chunks are processed
+  // Callback when all chunks are processed (analysis already done per-chunk)
   const handleAllChunksComplete = useCallback(async (completedChunks, failedChunks) => {
     console.log(`All chunks complete: ${completedChunks.length} succeeded, ${failedChunks.length} failed`);
 
@@ -197,61 +213,23 @@ function QuestionView() {
       console.warn('Some chunks failed to process:', failedChunks);
     }
 
-    if (completedChunks.length === 0) {
+    // Show completion status
+    setProcessingProgress(100);
+    setProcessingStep('complete');
+
+    // Final reload to ensure UI is up to date
+    if (loadDataRef.current) await loadDataRef.current();
+
+    // Reset UI state after brief delay
+    setTimeout(() => {
+      setProcessingAudio(false);
+      setProcessingStep('');
+      setProcessingProgress(0);
       setIsSessionProcessing(false);
-      return;
-    }
-
-    setIsSessionProcessing(true);
-    setProcessingStep('analyzing');
-    setProcessingProgress(75);
-
-    try {
-      // Combine all transcriptions in order
-      const sortedTranscriptions = [...sessionTranscriptions]
-        .filter(t => t)
-        .sort((a, b) => a.index - b.index);
-
-      const combinedTranscription = sortedTranscriptions
-        .map((t, idx) => `[Part ${idx + 1}]\n${t.text}`)
-        .join('\n\n');
-
-      // Update text response with combined transcription
-      setTextResponse(prev => prev.trim()
-        ? prev + '\n\n--- Transcription ---\n' + combinedTranscription
-        : combinedTranscription
-      );
-
-      // Generate observation with all transcriptions
-      await createObservation(questionId);
-
-      setProcessingProgress(100);
-      setProcessingStep('complete');
-
-      // Reload data
-      if (loadDataRef.current) await loadDataRef.current();
-
-      setTimeout(() => {
-        setProcessingAudio(false);
-        setProcessingStep('');
-        setProcessingProgress(0);
-        setIsSessionProcessing(false);
-        setChunkProcessingStatus([]);
-        setSessionTranscriptions([]);
-      }, 1500);
-
-    } catch (error) {
-      console.error('Failed to finalize session:', error);
-      setProcessingStep('error');
-      setTimeout(() => {
-        setProcessingAudio(false);
-        setProcessingStep('');
-        setProcessingProgress(0);
-        setIsSessionProcessing(false);
-        alert('Processing failed: ' + error.message);
-      }, 2000);
-    }
-  }, [questionId, sessionTranscriptions]);
+      setChunkProcessingStatus([]);
+      setSessionTranscriptions([]);
+    }, 1500);
+  }, []);
 
   // Initialize chunked recording hook
   const {
@@ -787,11 +765,13 @@ function QuestionView() {
                             status.status === 'complete' ? 'bg-green-100 text-green-700' :
                             status.status === 'error' ? 'bg-red-100 text-red-700' :
                             status.status === 'transcribing' ? 'bg-purple-100 text-purple-700' :
+                            status.status === 'analyzing' ? 'bg-amber-100 text-amber-700' :
                             'bg-blue-100 text-blue-700'
                           }`}
                         >
                           Chunk {idx + 1}: {status.status === 'uploading' ? 'Uploading' :
                             status.status === 'transcribing' ? 'Transcribing' :
+                            status.status === 'analyzing' ? 'Analyzing' :
                             status.status === 'complete' ? 'Done' :
                             status.status === 'error' ? 'Error' : status.status}
                         </span>
@@ -819,6 +799,7 @@ function QuestionView() {
                             status.status === 'complete' ? 'bg-green-100 text-green-700' :
                             status.status === 'error' ? 'bg-red-100 text-red-700' :
                             status.status === 'transcribing' ? 'bg-purple-100 text-purple-700' :
+                            status.status === 'analyzing' ? 'bg-amber-100 text-amber-700' :
                             'bg-blue-100 text-blue-700'
                           }`}
                         >
@@ -1019,6 +1000,7 @@ function QuestionView() {
                             status.status === 'complete' ? 'bg-green-100 text-green-700' :
                             status.status === 'error' ? 'bg-red-100 text-red-700' :
                             status.status === 'transcribing' ? 'bg-purple-100 text-purple-700' :
+                            status.status === 'analyzing' ? 'bg-amber-100 text-amber-700' :
                             'bg-blue-100 text-blue-700'
                           }`}
                         >
@@ -1029,6 +1011,7 @@ function QuestionView() {
                           Chunk {idx + 1}: {
                             status.status === 'uploading' ? 'Uploading' :
                             status.status === 'transcribing' ? 'Transcribing' :
+                            status.status === 'analyzing' ? 'Analyzing' :
                             status.status === 'complete' ? 'Done' :
                             status.status === 'error' ? 'Failed' : status.status
                           }
@@ -1085,6 +1068,7 @@ function QuestionView() {
                             status.status === 'complete' ? 'bg-green-100 text-green-700' :
                             status.status === 'error' ? 'bg-red-100 text-red-700' :
                             status.status === 'transcribing' ? 'bg-purple-100 text-purple-700' :
+                            status.status === 'analyzing' ? 'bg-amber-100 text-amber-700' :
                             'bg-blue-100 text-blue-700'
                           }`}
                         >
