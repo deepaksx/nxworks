@@ -492,7 +492,7 @@ function SharedChecklist() {
               />
               <button
                 onClick={() => documentInputRef.current?.click()}
-                disabled={isRecording || documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing'}
+                disabled={documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing'}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-blue-300 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50"
                 title="Upload Document (PDF, Word, TXT)"
               >
