@@ -150,13 +150,6 @@ function QuestionView() {
         getAllObservations(questionId)
       ]);
 
-      // Check if this question is accessible (previous question must be completed)
-      if (questionRes.data.isAccessible === false) {
-        alert('Please complete the previous question before accessing this one.');
-        navigate(`/workshop/${workshopId}/session/${sessionId}`);
-        return;
-      }
-
       setQuestion(questionRes.data);
       setParticipants(participantsRes.data);
       setObservations(observationsRes.data.observations || []);

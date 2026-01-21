@@ -17,8 +17,7 @@ import {
   Loader2,
   Sparkles,
   Download,
-  Eye,
-  Lock
+  Eye
 } from 'lucide-react';
 
 const entityColors = {
@@ -126,22 +125,7 @@ function SessionView() {
       if (statusFilter === 'critical' && !q.is_critical) return false;
       return true;
     })
-    .sort((a, b) => a.question_number - b.question_number); // Strict sequential order
-
-  // Helper to check if a question is unlocked (previous question must be completed)
-  const isQuestionUnlocked = (questionNumber) => {
-    // First question is always unlocked
-    if (questionNumber === 1) return true;
-
-    // Find the previous question (by question_number, not by filtered list)
-    const prevQuestion = questions.find(q => q.question_number === questionNumber - 1);
-
-    // If no previous question found, unlock this one
-    if (!prevQuestion) return true;
-
-    // Previous question must be completed
-    return prevQuestion.answer_status === 'completed';
-  };
+    .sort((a, b) => a.question_number - b.question_number); // Sequential order
 
   if (loading) {
     return (
@@ -270,43 +254,30 @@ function SessionView() {
             {filteredQuestions.map((question) => {
               const entityCode = question.entity_code || 'General';
               const colors = entityColors[entityCode] || entityColors.General;
-              const unlocked = isQuestionUnlocked(question.question_number);
 
               return (
-                <tr key={question.id} className={`transition-colors ${unlocked ? 'hover:bg-gray-50' : 'bg-gray-50/50 opacity-60'}`}>
+                <tr key={question.id} className="transition-colors hover:bg-gray-50">
                   <td className="px-3 py-2">
                     <span className={`inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold ${colors.badge}`}>
                       {question.question_number}
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    {unlocked ? (
-                      <Link
-                        to={`/workshop/${workshopId}/session/${sessionId}/question/${question.id}`}
-                        className="hover:text-nxsys-500 block"
-                      >
-                        <span className={question.is_critical ? 'font-medium' : ''}>
-                          {question.is_critical && <AlertTriangle className="inline w-3 h-3 text-amber-500 mr-1" />}
-                          {question.question_text.length > 100
-                            ? question.question_text.substring(0, 100) + '...'
-                            : question.question_text}
-                        </span>
-                      </Link>
-                    ) : (
-                      <div className="flex items-center gap-2 text-gray-400 cursor-not-allowed">
-                        <Lock className="w-3 h-3 flex-shrink-0" />
-                        <span className={question.is_critical ? 'font-medium' : ''}>
-                          {question.is_critical && <AlertTriangle className="inline w-3 h-3 text-amber-300 mr-1" />}
-                          {question.question_text.length > 100
-                            ? question.question_text.substring(0, 100) + '...'
-                            : question.question_text}
-                        </span>
-                      </div>
-                    )}
+                    <Link
+                      to={`/workshop/${workshopId}/session/${sessionId}/question/${question.id}`}
+                      className="hover:text-nxsys-500 block"
+                    >
+                      <span className={question.is_critical ? 'font-medium' : ''}>
+                        {question.is_critical && <AlertTriangle className="inline w-3 h-3 text-amber-500 mr-1" />}
+                        {question.question_text.length > 100
+                          ? question.question_text.substring(0, 100) + '...'
+                          : question.question_text}
+                      </span>
+                    </Link>
                   </td>
                   <td className="px-3 py-2">
                     {entityCode && (
-                      <span className={`px-1.5 py-0.5 rounded text-xs ${unlocked ? colors.badge : 'bg-gray-100 text-gray-400'}`}>
+                      <span className={`px-1.5 py-0.5 rounded text-xs ${colors.badge}`}>
                         {entityCode}
                       </span>
                     )}
@@ -314,21 +285,19 @@ function SessionView() {
                   <td className="px-3 py-2">
                     <div className="flex items-center space-x-2 text-xs">
                       {question.audio_count > 0 && (
-                        <span className={`flex items-center ${unlocked ? 'text-purple-600' : 'text-gray-400'}`}>
+                        <span className="flex items-center text-purple-600">
                           <Mic className="w-3 h-3 mr-0.5" />{question.audio_count}
                         </span>
                       )}
                       {question.document_count > 0 && (
-                        <span className={`flex items-center ${unlocked ? 'text-blue-600' : 'text-gray-400'}`}>
+                        <span className="flex items-center text-blue-600">
                           <Paperclip className="w-3 h-3 mr-0.5" />{question.document_count}
                         </span>
                       )}
                     </div>
                   </td>
                   <td className="px-3 py-2">
-                    {!unlocked ? (
-                      <Lock className="w-4 h-4 text-gray-300" />
-                    ) : question.answer_status === 'completed' ? (
+                    {question.answer_status === 'completed' ? (
                       <CheckCircle className="w-4 h-4 text-green-500" />
                     ) : question.answer_status === 'in_progress' ? (
                       <PlayCircle className="w-4 h-4 text-amber-500" />
