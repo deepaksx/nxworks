@@ -10,7 +10,8 @@ import {
   getExportExcelUrl,
   uploadSessionDocument,
   analyzeSessionDocument,
-  getSessionDocuments
+  getSessionDocuments,
+  deleteSessionDocument
 } from '../services/sessionChecklistApi';
 import {
   Mic,
@@ -35,7 +36,8 @@ import {
   Download,
   FileUp,
   FileText,
-  File
+  File,
+  Trash2
 } from 'lucide-react';
 
 // Chunk duration options in seconds
@@ -59,6 +61,7 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
     completionPercent: 0
   });
   const [findings, setFindings] = useState({ all: [], stats: { total: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 } });
+  const [documents, setDocuments] = useState([]);
   const [activeTab, setActiveTab] = useState('missing');
   const [loading, setLoading] = useState(true);
   const [chunkProcessingStatus, setChunkProcessingStatus] = useState([]);
@@ -95,14 +98,16 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
   const loadChecklist = async () => {
     try {
       setLoading(true);
-      const [checklistRes, statsRes, findingsRes] = await Promise.all([
+      const [checklistRes, statsRes, findingsRes, documentsRes] = await Promise.all([
         getSessionChecklist(sessionId),
         getSessionChecklistStats(sessionId),
-        getSessionFindings(sessionId).catch(() => ({ data: { all: [], stats: { total: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 } } }))
+        getSessionFindings(sessionId).catch(() => ({ data: { all: [], stats: { total: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 } } })),
+        getSessionDocuments(sessionId).catch(() => ({ data: [] }))
       ]);
       setChecklist(checklistRes.data);
       setStats(statsRes.data);
       setFindings(findingsRes.data);
+      setDocuments(documentsRes.data);
 
       // Auto-expand all categories
       const categories = {};
@@ -169,6 +174,18 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
       setDocumentUploadStatus('error');
       setDocumentUploadMessage(error.response?.data?.error || error.message || 'Failed to process document');
       setTimeout(() => setDocumentUploadStatus(null), 5000);
+    }
+  };
+
+  // Delete document handler
+  const handleDeleteDocument = async (documentId) => {
+    if (!confirm('Delete this document?')) return;
+    try {
+      await deleteSessionDocument(sessionId, documentId);
+      setDocuments(prev => prev.filter(d => d.id !== documentId));
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      alert('Failed to delete document');
     }
   };
 
@@ -569,6 +586,17 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('documents')}
+            className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'documents'
+                ? 'border-b-2 border-blue-500 text-blue-700 bg-blue-50'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <FileText className="w-4 h-4 inline mr-2" />
+            Documents ({documents.length})
+          </button>
         </div>
 
         <div className="p-4 max-h-[60vh] overflow-y-auto">
@@ -721,6 +749,71 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
                   <p className="font-medium">No additional findings yet</p>
                   <p className="text-sm mt-1">
                     When you discuss topics beyond the checklist, the system will capture them here with SAP best practice analysis.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'documents' && (
+            <div className="space-y-3">
+              {documents.length > 0 ? (
+                documents.map(doc => (
+                  <div key={doc.id} className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className={`p-2 rounded-lg ${
+                      doc.analysis_status === 'completed' ? 'bg-green-100' :
+                      doc.analysis_status === 'failed' ? 'bg-red-100' :
+                      doc.analysis_status === 'processing' ? 'bg-blue-100' :
+                      'bg-gray-100'
+                    }`}>
+                      <FileText className={`w-5 h-5 ${
+                        doc.analysis_status === 'completed' ? 'text-green-600' :
+                        doc.analysis_status === 'failed' ? 'text-red-600' :
+                        doc.analysis_status === 'processing' ? 'text-blue-600' :
+                        'text-gray-500'
+                      }`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{doc.original_name}</p>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span>{(doc.file_size / 1024).toFixed(1)} KB</span>
+                        <span>•</span>
+                        <span className={`font-medium ${
+                          doc.analysis_status === 'completed' ? 'text-green-600' :
+                          doc.analysis_status === 'failed' ? 'text-red-600' :
+                          doc.analysis_status === 'processing' ? 'text-blue-600' :
+                          'text-gray-500'
+                        }`}>
+                          {doc.analysis_status === 'completed' ? 'Analyzed' :
+                           doc.analysis_status === 'failed' ? 'Failed' :
+                           doc.analysis_status === 'processing' ? 'Processing...' :
+                           'Pending'}
+                        </span>
+                        {doc.analysis_status === 'completed' && (
+                          <>
+                            <span>•</span>
+                            <span className="text-green-600">{doc.obtained_count} obtained</span>
+                            <span>•</span>
+                            <span className="text-purple-600">{doc.findings_count} findings</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteDocument(doc.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                      title="Delete document"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <FileText className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                  <p className="font-medium">No documents uploaded</p>
+                  <p className="text-sm mt-1">
+                    Upload PDF, Word, or text files to extract information for the checklist.
                   </p>
                 </div>
               )}
