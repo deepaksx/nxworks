@@ -439,7 +439,7 @@ async function saveChecklistItems(sessionId, items) {
 /**
  * Update checklist items as obtained
  */
-async function markItemsAsObtained(obtainedItems) {
+async function markItemsAsObtained(obtainedItems, source = 'audio') {
   const updated = [];
 
   for (const item of obtainedItems) {
@@ -449,12 +449,13 @@ async function markItemsAsObtained(obtainedItems) {
         status = 'obtained',
         obtained_text = $1,
         obtained_confidence = $2,
-        obtained_source = 'audio',
+        obtained_source = $3,
         obtained_at = CURRENT_TIMESTAMP
-      WHERE id = $3
+      WHERE id = $4
     `, [
       item.obtained_text,
       item.confidence,
+      source,
       item.item_id
     ]);
     updated.push(item.item_id);
@@ -463,9 +464,153 @@ async function markItemsAsObtained(obtainedItems) {
   return updated;
 }
 
+/**
+ * Analyze document content against session checklist to find obtained items
+ */
+async function analyzeDocumentAgainstChecklist(sessionId, documentText, documentName) {
+  // Get all missing items for this session
+  const missingItemsResult = await db.query(`
+    SELECT id, item_number, item_text, importance, category, suggested_question
+    FROM session_checklist_items
+    WHERE session_id = $1 AND status = 'missing'
+    ORDER BY item_number
+  `, [sessionId]);
+
+  const missingItems = missingItemsResult.rows;
+
+  if (missingItems.length === 0) {
+    return { obtainedItems: [], additionalFindings: [], remainingMissing: 0 };
+  }
+
+  // Get session context
+  const sessionResult = await db.query(`
+    SELECT s.*, w.mission_statement, w.industry_context, w.name as workshop_name
+    FROM sessions s
+    JOIN workshops w ON s.workshop_id = w.id
+    WHERE s.id = $1
+  `, [sessionId]);
+  const session = sessionResult.rows[0];
+
+  // Truncate document text if too long (keep first 50K chars)
+  const maxTextLength = 50000;
+  const truncatedText = documentText.length > maxTextLength
+    ? documentText.substring(0, maxTextLength) + '\n\n[Document truncated due to length...]'
+    : documentText;
+
+  const prompt = `You are an expert SAP S/4HANA implementation consultant analyzing a document uploaded during a workshop.
+
+**Workshop:** ${session.workshop_name}
+**Mission:** ${session.mission_statement || 'Not specified'}
+**Module:** ${session.module}
+**Industry Context:** ${session.industry_context || 'Not specified'}
+**Document Name:** ${documentName || 'Uploaded Document'}
+
+**Checklist Items Still Missing (need to find information for these):**
+${missingItems.map(item => `[ID:${item.id}] ${item.item_text}`).join('\n')}
+
+**Document Content:**
+${truncatedText}
+
+You have TWO tasks:
+
+## TASK 1: Identify Checklist Items Answered
+Analyze the document and identify which checklist items have answers based on the document content.
+- Only mark an item as "obtained" if SPECIFIC, CONCRETE information is found in the document
+- Extract the ACTUAL DATA from the document, not just acknowledgment that it exists
+- If information is partial or unclear, still mark as obtained but note the limitation
+
+## TASK 2: Capture Additional Findings (CRITICAL)
+Identify ANY topics, processes, data, or information in the document that are NOT covered by the checklist items above. These could be:
+- Business processes documented that weren't on the checklist
+- Organization structures described
+- Master data details
+- Integration requirements
+- Compliance or regulatory information
+- Performance metrics or KPIs
+- Any other relevant SAP implementation information
+
+For EACH additional finding, provide SAP best practice analysis:
+- What does this mean for the SAP implementation?
+- What are the risks if not addressed properly?
+- What SAP functionality or solution addresses this?
+
+**Output Format - JSON:**
+\`\`\`json
+{
+  "obtained_items": [
+    {
+      "item_id": 123,
+      "obtained_text": "The actual specific information extracted from the document",
+      "confidence": "high|medium|low",
+      "source_quote": "Brief relevant quote from document"
+    }
+  ],
+  "additional_findings": [
+    {
+      "topic": "Brief topic title",
+      "finding_type": "process|pain_point|integration|compliance|performance|workaround|requirement|data|organization|other",
+      "details": "Detailed description of what was found in the document",
+      "source_quote": "Relevant quote from document",
+      "sap_analysis": "Analysis from SAP implementation perspective",
+      "sap_recommendation": "Specific SAP best practice recommendation",
+      "sap_best_practice": "Relevant SAP standard functionality or solution",
+      "sap_risk_level": "high|medium|low",
+      "risk_explanation": "Why this is important for the implementation"
+    }
+  ]
+}
+\`\`\`
+
+IMPORTANT:
+- Documents may contain valuable organizational data, process flows, or requirements
+- Be thorough in extracting all relevant information
+- If no additional findings, return an empty array
+- Return ONLY valid JSON, no other text.`;
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 8000,
+    messages: [{ role: 'user', content: prompt }]
+  });
+
+  let rawContent = response.content[0].text;
+  rawContent = rawContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+  let result;
+  try {
+    result = JSON.parse(rawContent);
+  } catch (parseError) {
+    console.error('Document analysis JSON parse error:', parseError.message);
+    console.error('Raw content (first 500 chars):', rawContent.substring(0, 500));
+
+    // Try to fix common JSON issues
+    try {
+      const lastBrace = rawContent.lastIndexOf('}');
+      if (lastBrace > 0) {
+        rawContent = rawContent.substring(0, lastBrace + 1);
+      }
+      result = JSON.parse(rawContent);
+    } catch (retryError) {
+      console.error('Document analysis JSON retry parse also failed:', retryError.message);
+      return {
+        obtainedItems: [],
+        additionalFindings: [],
+        remainingMissing: missingItems.length
+      };
+    }
+  }
+
+  return {
+    obtainedItems: result.obtained_items || [],
+    additionalFindings: result.additional_findings || [],
+    remainingMissing: missingItems.length - (result.obtained_items?.length || 0)
+  };
+}
+
 module.exports = {
   generateDirectChecklist,
   analyzeTranscriptionAgainstChecklist,
+  analyzeDocumentAgainstChecklist,
   saveChecklistItems,
   markItemsAsObtained,
   saveAdditionalFindings,

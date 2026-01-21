@@ -7,7 +7,10 @@ import {
   analyzeSessionAudio,
   getSessionFindings,
   updateChecklistItem,
-  getExportExcelUrl
+  getExportExcelUrl,
+  uploadSessionDocument,
+  analyzeSessionDocument,
+  getSessionDocuments
 } from '../services/sessionChecklistApi';
 import {
   Mic,
@@ -29,7 +32,10 @@ import {
   Edit3,
   Save,
   X,
-  Download
+  Download,
+  FileUp,
+  FileText,
+  File
 } from 'lucide-react';
 
 // Chunk duration options in seconds
@@ -60,6 +66,9 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
   const [showSettings, setShowSettings] = useState(false);
   const [chunkDuration, setChunkDuration] = useState(60); // Default 1 minute
   const settingsRef = useRef(null);
+  const documentInputRef = useRef(null);
+  const [documentUploadStatus, setDocumentUploadStatus] = useState(null); // null, 'uploading', 'analyzing', 'complete', 'error'
+  const [documentUploadMessage, setDocumentUploadMessage] = useState('');
 
   // Close settings dropdown when clicking outside
   useEffect(() => {
@@ -105,6 +114,61 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
       console.error('Error loading checklist:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Document upload handler
+  const handleDocumentUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Reset input
+    event.target.value = '';
+
+    // Validate file type
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.txt', '.csv'];
+    const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
+    if (!allowedExtensions.includes(ext)) {
+      setDocumentUploadStatus('error');
+      setDocumentUploadMessage('Only PDF, Word documents (.doc, .docx), and text files are allowed');
+      setTimeout(() => setDocumentUploadStatus(null), 5000);
+      return;
+    }
+
+    try {
+      // Step 1: Upload
+      setDocumentUploadStatus('uploading');
+      setDocumentUploadMessage(`Uploading ${file.name}...`);
+
+      const formData = new FormData();
+      formData.append('document', file);
+
+      const uploadResponse = await uploadSessionDocument(sessionId, formData);
+      const documentId = uploadResponse.data.id;
+
+      // Step 2: Analyze
+      setDocumentUploadStatus('analyzing');
+      setDocumentUploadMessage('Extracting text and analyzing against checklist...');
+
+      const analysisResponse = await analyzeSessionDocument(sessionId, documentId);
+
+      // Step 3: Complete
+      setDocumentUploadStatus('complete');
+      setDocumentUploadMessage(
+        `Done! ${analysisResponse.data.obtainedCount || 0} items obtained, ${analysisResponse.data.findingsCount || 0} findings captured`
+      );
+
+      // Reload checklist
+      await loadChecklist();
+
+      // Clear status after delay
+      setTimeout(() => setDocumentUploadStatus(null), 5000);
+
+    } catch (error) {
+      console.error('Error uploading/analyzing document:', error);
+      setDocumentUploadStatus('error');
+      setDocumentUploadMessage(error.response?.data?.error || error.message || 'Failed to process document');
+      setTimeout(() => setDocumentUploadStatus(null), 5000);
     }
   };
 
@@ -284,6 +348,28 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
               Excel
             </button>
 
+            {/* Document upload button */}
+            <input
+              type="file"
+              ref={documentInputRef}
+              onChange={handleDocumentUpload}
+              accept=".pdf,.doc,.docx,.txt,.csv"
+              className="hidden"
+            />
+            <button
+              onClick={() => documentInputRef.current?.click()}
+              disabled={isRecording || documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing'}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-blue-300 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50"
+              title="Upload Document (PDF, Word, TXT)"
+            >
+              {documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing' ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <FileUp className="w-4 h-4" />
+              )}
+              Document
+            </button>
+
             <button
               onClick={loadChecklist}
               disabled={isRecording}
@@ -386,6 +472,57 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
               </>
             ) : (
               <span className="text-gray-500">Recording will be analyzed in chunks...</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Document upload status */}
+      {documentUploadStatus && (
+        <div className={`rounded-lg p-4 border ${
+          documentUploadStatus === 'error' ? 'bg-red-50 border-red-200' :
+          documentUploadStatus === 'complete' ? 'bg-green-50 border-green-200' :
+          'bg-blue-50 border-blue-200'
+        }`}>
+          <div className="flex items-center gap-3">
+            {documentUploadStatus === 'uploading' && (
+              <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+            )}
+            {documentUploadStatus === 'analyzing' && (
+              <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+            )}
+            {documentUploadStatus === 'complete' && (
+              <CheckCircle className="w-5 h-5 text-green-600" />
+            )}
+            {documentUploadStatus === 'error' && (
+              <AlertCircle className="w-5 h-5 text-red-600" />
+            )}
+            <div className="flex-1">
+              <p className={`text-sm font-medium ${
+                documentUploadStatus === 'error' ? 'text-red-800' :
+                documentUploadStatus === 'complete' ? 'text-green-800' :
+                'text-blue-800'
+              }`}>
+                {documentUploadStatus === 'uploading' && 'Uploading Document'}
+                {documentUploadStatus === 'analyzing' && 'Analyzing Document'}
+                {documentUploadStatus === 'complete' && 'Document Analyzed'}
+                {documentUploadStatus === 'error' && 'Upload Failed'}
+              </p>
+              <p className={`text-xs ${
+                documentUploadStatus === 'error' ? 'text-red-600' :
+                documentUploadStatus === 'complete' ? 'text-green-600' :
+                'text-blue-600'
+              }`}>
+                {documentUploadMessage}
+              </p>
+            </div>
+            {documentUploadStatus !== 'uploading' && documentUploadStatus !== 'analyzing' && (
+              <button
+                onClick={() => setDocumentUploadStatus(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
             )}
           </div>
         </div>

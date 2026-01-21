@@ -53,4 +53,20 @@ export const getGenerateChecklistStreamUrl = (workshopId, sessionId) =>
 export const getExportExcelUrl = (sessionId) =>
   `/api/session-checklist/session/${sessionId}/export-excel`;
 
+// Upload document for analysis
+export const uploadSessionDocument = (sessionId, formData) =>
+  axios.post(`${API_BASE}/session/${sessionId}/document`, formData);
+
+// Analyze uploaded document
+export const analyzeSessionDocument = (sessionId, documentId) =>
+  api.post(`/session/${sessionId}/document/${documentId}/analyze`);
+
+// Get all documents for a session
+export const getSessionDocuments = (sessionId) =>
+  api.get(`/session/${sessionId}/documents`);
+
+// Delete a document
+export const deleteSessionDocument = (sessionId, documentId) =>
+  api.delete(`/session/${sessionId}/document/${documentId}`);
+
 export default api;

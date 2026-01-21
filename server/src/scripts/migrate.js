@@ -224,6 +224,38 @@ const runMigrations = async () => {
       console.log('  [SKIP] session_additional_findings table already exists');
     }
 
+    // ===========================================
+    // Migration 7: Add session_documents table
+    // ===========================================
+    console.log('\nMigration 7: session_documents table');
+    if (!await tableExists(client, 'session_documents')) {
+      await client.query(`
+        CREATE TABLE session_documents (
+          id SERIAL PRIMARY KEY,
+          session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+          file_path VARCHAR(500) NOT NULL,
+          file_name VARCHAR(255) NOT NULL,
+          original_name VARCHAR(255),
+          mime_type VARCHAR(100),
+          file_size INTEGER,
+          extracted_text TEXT,
+          analysis_status VARCHAR(20) DEFAULT 'pending',
+          obtained_count INTEGER DEFAULT 0,
+          findings_count INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          analyzed_at TIMESTAMP
+        )
+      `);
+      console.log('  [CREATE] session_documents table');
+      changesCount++;
+
+      // Create index
+      await createIndexIfNotExists(client, 'idx_session_documents_session', 'session_documents', 'session_id');
+      changesCount++;
+    } else {
+      console.log('  [SKIP] session_documents table already exists');
+    }
+
     await client.query('COMMIT');
 
     console.log('\n========================================');
@@ -263,6 +295,9 @@ const runMigrations = async () => {
 
     const findingsTable = await tableExists(client, 'session_additional_findings');
     console.log(`  - session_additional_findings table: ${findingsTable ? 'EXISTS' : 'MISSING'}`);
+
+    const documentsTable = await tableExists(client, 'session_documents');
+    console.log(`  - session_documents table: ${documentsTable ? 'EXISTS' : 'MISSING'}`);
 
     console.log('\n');
 

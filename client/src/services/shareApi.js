@@ -72,6 +72,18 @@ export const analyzeShareAudio = (shareToken, authToken, audioId) =>
 export const getShareFindings = (shareToken, authToken) =>
   createShareApi(authToken).get(`/share/${shareToken}/findings`);
 
+// Upload document (requires auth)
+export const uploadShareDocument = (shareToken, authToken, formData) =>
+  axios.post(`${API_BASE}/share/${shareToken}/document`, formData, {
+    headers: {
+      Authorization: `Bearer ${authToken}`
+    }
+  });
+
+// Analyze document (requires auth)
+export const analyzeShareDocument = (shareToken, authToken, documentId) =>
+  createShareApi(authToken).post(`/share/${shareToken}/document/${documentId}/analyze`);
+
 export default {
   enableSharing,
   disableSharing,
@@ -85,5 +97,7 @@ export default {
   getShareChecklistStats,
   uploadShareAudio,
   analyzeShareAudio,
-  getShareFindings
+  getShareFindings,
+  uploadShareDocument,
+  analyzeShareDocument
 };

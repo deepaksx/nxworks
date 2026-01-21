@@ -22,12 +22,17 @@ const {
   analyzeTranscriptionAgainstChecklist,
   markItemsAsObtained,
   saveAdditionalFindings,
-  getSessionFindings
+  getSessionFindings,
+  analyzeDocumentAgainstChecklist
 } = require('../services/directChecklistGenerator');
 
 // OpenAI for transcription
 const OpenAI = require('openai');
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Document parsing libraries
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
 
 // Configure multer for audio uploads
 const getUploadDir = () => {
@@ -656,6 +661,325 @@ router.get('/session/:sessionId/export-excel', async (req, res) => {
 
   } catch (error) {
     console.error('Error exporting to Excel:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Document upload configuration
+// ============================================
+const documentStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(getUploadDir(), 'session-documents');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || '';
+    const uniqueName = `${uuidv4()}${ext}`;
+    cb(null, uniqueName);
+  }
+});
+
+const documentUpload = multer({
+  storage: isS3Configured() ? memoryStorage : documentStorage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max for documents
+  fileFilter: (req, file, cb) => {
+    // Allow PDF, Word docs, and text files
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'text/csv'
+    ];
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.txt', '.csv'];
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF, Word documents (.doc, .docx), and text files are allowed'), false);
+    }
+  }
+});
+
+// ============================================
+// Upload document for analysis
+// ============================================
+router.post('/session/:sessionId/document', documentUpload.single('document'), async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No document file provided' });
+    }
+
+    let filePath;
+    let fileName;
+
+    if (isS3Configured()) {
+      const ext = path.extname(req.file.originalname) || '';
+      const uniqueName = `${uuidv4()}${ext}`;
+      const s3Key = `uploads/session-documents/${uniqueName}`;
+      await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
+      filePath = s3Key;
+      fileName = uniqueName;
+    } else {
+      filePath = `uploads/session-documents/${req.file.filename}`;
+      fileName = req.file.filename;
+    }
+
+    // Save document record
+    const result = await db.query(`
+      INSERT INTO session_documents
+        (session_id, file_path, file_name, original_name, mime_type, file_size, analysis_status)
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+      RETURNING *
+    `, [
+      sessionId,
+      filePath,
+      fileName,
+      req.file.originalname,
+      req.file.mimetype,
+      req.file.size
+    ]);
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error uploading document:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Analyze uploaded document against checklist
+// ============================================
+router.post('/session/:sessionId/document/:documentId/analyze', async (req, res) => {
+  try {
+    const { sessionId, documentId } = req.params;
+
+    // Get document record
+    const docResult = await db.query(
+      'SELECT * FROM session_documents WHERE id = $1 AND session_id = $2',
+      [documentId, sessionId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+
+    // Check if already analyzed with extracted text
+    if (doc.analysis_status === 'completed' && doc.extracted_text) {
+      return res.json({
+        message: 'Document already analyzed',
+        obtainedCount: doc.obtained_count,
+        findingsCount: doc.findings_count
+      });
+    }
+
+    // Update status to processing
+    await db.query(
+      'UPDATE session_documents SET analysis_status = $1 WHERE id = $2',
+      ['processing', documentId]
+    );
+
+    // Get file path for extraction
+    let filePath = doc.file_path;
+    let tempFile = null;
+    let fileBuffer = null;
+
+    if (isS3Configured() && filePath.startsWith('uploads/')) {
+      const { GetObjectCommand } = require('@aws-sdk/client-s3');
+      const { getS3Client, getBucketName } = require('../services/s3');
+
+      const s3Client = getS3Client();
+      const response = await s3Client.send(new GetObjectCommand({
+        Bucket: getBucketName(),
+        Key: filePath
+      }));
+
+      // Read stream to buffer
+      const chunks = [];
+      for await (const chunk of response.Body) {
+        chunks.push(chunk);
+      }
+      fileBuffer = Buffer.concat(chunks);
+
+      // Also save to temp file for mammoth (Word docs)
+      tempFile = path.join('/tmp', `doc_${documentId}${path.extname(doc.original_name)}`);
+      fs.writeFileSync(tempFile, fileBuffer);
+      filePath = tempFile;
+    } else if (!path.isAbsolute(filePath)) {
+      filePath = path.join(__dirname, '../..', filePath);
+      fileBuffer = fs.readFileSync(filePath);
+    } else {
+      fileBuffer = fs.readFileSync(filePath);
+    }
+
+    // Extract text based on file type
+    let extractedText = '';
+    const mimeType = doc.mime_type || '';
+    const ext = path.extname(doc.original_name || doc.file_name).toLowerCase();
+
+    try {
+      if (mimeType === 'application/pdf' || ext === '.pdf') {
+        // PDF extraction
+        const pdfData = await pdfParse(fileBuffer);
+        extractedText = pdfData.text;
+      } else if (
+        mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        mimeType === 'application/msword' ||
+        ext === '.docx' || ext === '.doc'
+      ) {
+        // Word document extraction
+        const result = await mammoth.extractRawText({ path: filePath });
+        extractedText = result.value;
+      } else if (mimeType.startsWith('text/') || ext === '.txt' || ext === '.csv') {
+        // Plain text
+        extractedText = fileBuffer.toString('utf-8');
+      } else {
+        throw new Error(`Unsupported file type: ${mimeType || ext}`);
+      }
+    } catch (extractError) {
+      console.error('Text extraction error:', extractError);
+      await db.query(
+        'UPDATE session_documents SET analysis_status = $1 WHERE id = $2',
+        ['failed', documentId]
+      );
+      throw new Error(`Failed to extract text from document: ${extractError.message}`);
+    }
+
+    // Clean up temp file
+    if (tempFile && fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+    }
+
+    if (!extractedText || extractedText.trim().length === 0) {
+      await db.query(
+        'UPDATE session_documents SET analysis_status = $1 WHERE id = $2',
+        ['failed', documentId]
+      );
+      return res.status(400).json({ error: 'No text could be extracted from the document' });
+    }
+
+    // Save extracted text
+    await db.query(
+      'UPDATE session_documents SET extracted_text = $1 WHERE id = $2',
+      [extractedText, documentId]
+    );
+
+    // Analyze against checklist (reuse same function as transcription)
+    const analysisResult = await analyzeDocumentAgainstChecklist(sessionId, extractedText, doc.original_name);
+
+    // Mark items as obtained
+    if (analysisResult.obtainedItems && analysisResult.obtainedItems.length > 0) {
+      await markItemsAsObtained(analysisResult.obtainedItems);
+    }
+
+    // Save additional findings
+    let savedFindings = [];
+    if (analysisResult.additionalFindings && analysisResult.additionalFindings.length > 0) {
+      savedFindings = await saveAdditionalFindings(sessionId, null, analysisResult.additionalFindings);
+    }
+
+    // Update document record with results
+    await db.query(`
+      UPDATE session_documents SET
+        analysis_status = 'completed',
+        obtained_count = $1,
+        findings_count = $2,
+        analyzed_at = CURRENT_TIMESTAMP
+      WHERE id = $3
+    `, [
+      analysisResult.obtainedItems?.length || 0,
+      savedFindings.length,
+      documentId
+    ]);
+
+    res.json({
+      extractedTextLength: extractedText.length,
+      obtainedCount: analysisResult.obtainedItems?.length || 0,
+      remainingMissing: analysisResult.remainingMissing,
+      obtainedItems: analysisResult.obtainedItems || [],
+      findingsCount: savedFindings.length,
+      findings: savedFindings
+    });
+  } catch (error) {
+    console.error('Error analyzing document:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Get all documents for a session
+// ============================================
+router.get('/session/:sessionId/documents', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const result = await db.query(`
+      SELECT id, session_id, file_name, original_name, mime_type, file_size,
+             analysis_status, obtained_count, findings_count, created_at, analyzed_at
+      FROM session_documents
+      WHERE session_id = $1
+      ORDER BY created_at DESC
+    `, [sessionId]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting documents:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Delete a document
+// ============================================
+router.delete('/session/:sessionId/document/:documentId', async (req, res) => {
+  try {
+    const { sessionId, documentId } = req.params;
+
+    // Get document info for file deletion
+    const docResult = await db.query(
+      'SELECT file_path FROM session_documents WHERE id = $1 AND session_id = $2',
+      [documentId, sessionId]
+    );
+
+    if (docResult.rows.length > 0) {
+      const filePath = docResult.rows[0].file_path;
+
+      // Delete from S3 or local filesystem
+      if (isS3Configured() && filePath.startsWith('uploads/')) {
+        try {
+          const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
+          const { getS3Client, getBucketName } = require('../services/s3');
+          await getS3Client().send(new DeleteObjectCommand({
+            Bucket: getBucketName(),
+            Key: filePath
+          }));
+        } catch (s3Error) {
+          console.error('Error deleting from S3:', s3Error);
+        }
+      } else {
+        const fullPath = path.isAbsolute(filePath) ? filePath : path.join(__dirname, '../..', filePath);
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+        }
+      }
+    }
+
+    // Delete database record
+    await db.query(
+      'DELETE FROM session_documents WHERE id = $1 AND session_id = $2',
+      [documentId, sessionId]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting document:', error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -24,12 +24,17 @@ const {
   analyzeTranscriptionAgainstChecklist,
   markItemsAsObtained,
   saveAdditionalFindings,
-  getSessionFindings
+  getSessionFindings,
+  analyzeDocumentAgainstChecklist
 } = require('../services/directChecklistGenerator');
 
 // OpenAI for transcription
 const OpenAI = require('openai');
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Document parsing libraries
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
 
 // JWT secret (use env var or fallback)
 const JWT_SECRET = process.env.JWT_SECRET || 'nxworks-share-secret-key-change-in-production';
@@ -601,6 +606,234 @@ router.get('/share/:token/findings', verifyShareToken, async (req, res) => {
     res.json({ all: findings, stats });
   } catch (error) {
     console.error('Error getting findings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Document upload configuration for shared access
+// ============================================
+const documentStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(getUploadDir(), 'session-documents');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || '';
+    const uniqueName = `${uuidv4()}${ext}`;
+    cb(null, uniqueName);
+  }
+});
+
+const documentUpload = multer({
+  storage: isS3Configured() ? memoryStorage : documentStorage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'text/csv'
+    ];
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.txt', '.csv'];
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF, Word documents, and text files are allowed'), false);
+    }
+  }
+});
+
+// Upload document for shared session
+router.post('/share/:token/document', verifyShareToken, documentUpload.single('document'), async (req, res) => {
+  try {
+    const { sessionId } = req.shareAuth;
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No document file provided' });
+    }
+
+    let filePath;
+    let fileName;
+
+    if (isS3Configured()) {
+      const ext = path.extname(req.file.originalname) || '';
+      const uniqueName = `${uuidv4()}${ext}`;
+      const s3Key = `uploads/session-documents/${uniqueName}`;
+      await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
+      filePath = s3Key;
+      fileName = uniqueName;
+    } else {
+      filePath = `uploads/session-documents/${req.file.filename}`;
+      fileName = req.file.filename;
+    }
+
+    const result = await db.query(`
+      INSERT INTO session_documents
+        (session_id, file_path, file_name, original_name, mime_type, file_size, analysis_status)
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+      RETURNING *
+    `, [
+      sessionId,
+      filePath,
+      fileName,
+      req.file.originalname,
+      req.file.mimetype,
+      req.file.size
+    ]);
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error uploading document:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Analyze document for shared session
+router.post('/share/:token/document/:documentId/analyze', verifyShareToken, async (req, res) => {
+  try {
+    const { sessionId } = req.shareAuth;
+    const { documentId } = req.params;
+
+    // Get document record
+    const docResult = await db.query(
+      'SELECT * FROM session_documents WHERE id = $1 AND session_id = $2',
+      [documentId, sessionId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+
+    if (doc.analysis_status === 'completed' && doc.extracted_text) {
+      return res.json({
+        message: 'Document already analyzed',
+        obtainedCount: doc.obtained_count,
+        findingsCount: doc.findings_count
+      });
+    }
+
+    await db.query(
+      'UPDATE session_documents SET analysis_status = $1 WHERE id = $2',
+      ['processing', documentId]
+    );
+
+    // Get file and extract text
+    let filePath = doc.file_path;
+    let tempFile = null;
+    let fileBuffer = null;
+
+    if (isS3Configured() && filePath.startsWith('uploads/')) {
+      const { GetObjectCommand } = require('@aws-sdk/client-s3');
+      const { getS3Client, getBucketName } = require('../services/s3');
+
+      const s3Client = getS3Client();
+      const response = await s3Client.send(new GetObjectCommand({
+        Bucket: getBucketName(),
+        Key: filePath
+      }));
+
+      const chunks = [];
+      for await (const chunk of response.Body) {
+        chunks.push(chunk);
+      }
+      fileBuffer = Buffer.concat(chunks);
+
+      tempFile = path.join('/tmp', `doc_${documentId}${path.extname(doc.original_name)}`);
+      fs.writeFileSync(tempFile, fileBuffer);
+      filePath = tempFile;
+    } else if (!path.isAbsolute(filePath)) {
+      filePath = path.join(__dirname, '../..', filePath);
+      fileBuffer = fs.readFileSync(filePath);
+    } else {
+      fileBuffer = fs.readFileSync(filePath);
+    }
+
+    // Extract text
+    let extractedText = '';
+    const mimeType = doc.mime_type || '';
+    const ext = path.extname(doc.original_name || doc.file_name).toLowerCase();
+
+    try {
+      if (mimeType === 'application/pdf' || ext === '.pdf') {
+        const pdfData = await pdfParse(fileBuffer);
+        extractedText = pdfData.text;
+      } else if (
+        mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        mimeType === 'application/msword' ||
+        ext === '.docx' || ext === '.doc'
+      ) {
+        const result = await mammoth.extractRawText({ path: filePath });
+        extractedText = result.value;
+      } else if (mimeType.startsWith('text/') || ext === '.txt' || ext === '.csv') {
+        extractedText = fileBuffer.toString('utf-8');
+      } else {
+        throw new Error(`Unsupported file type: ${mimeType || ext}`);
+      }
+    } catch (extractError) {
+      await db.query(
+        'UPDATE session_documents SET analysis_status = $1 WHERE id = $2',
+        ['failed', documentId]
+      );
+      throw new Error(`Failed to extract text: ${extractError.message}`);
+    }
+
+    if (tempFile && fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+    }
+
+    if (!extractedText || extractedText.trim().length === 0) {
+      await db.query(
+        'UPDATE session_documents SET analysis_status = $1 WHERE id = $2',
+        ['failed', documentId]
+      );
+      return res.status(400).json({ error: 'No text could be extracted from the document' });
+    }
+
+    await db.query(
+      'UPDATE session_documents SET extracted_text = $1 WHERE id = $2',
+      [extractedText, documentId]
+    );
+
+    // Analyze against checklist
+    const analysisResult = await analyzeDocumentAgainstChecklist(sessionId, extractedText, doc.original_name);
+
+    if (analysisResult.obtainedItems && analysisResult.obtainedItems.length > 0) {
+      await markItemsAsObtained(analysisResult.obtainedItems, 'document');
+    }
+
+    let savedFindings = [];
+    if (analysisResult.additionalFindings && analysisResult.additionalFindings.length > 0) {
+      savedFindings = await saveAdditionalFindings(sessionId, null, analysisResult.additionalFindings);
+    }
+
+    await db.query(`
+      UPDATE session_documents SET
+        analysis_status = 'completed',
+        obtained_count = $1,
+        findings_count = $2,
+        analyzed_at = CURRENT_TIMESTAMP
+      WHERE id = $3
+    `, [
+      analysisResult.obtainedItems?.length || 0,
+      savedFindings.length,
+      documentId
+    ]);
+
+    res.json({
+      extractedTextLength: extractedText.length,
+      obtainedCount: analysisResult.obtainedItems?.length || 0,
+      remainingMissing: analysisResult.remainingMissing,
+      findingsCount: savedFindings.length
+    });
+  } catch (error) {
+    console.error('Error analyzing document:', error);
     res.status(500).json({ error: error.message });
   }
 });
