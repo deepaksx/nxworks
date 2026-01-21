@@ -141,6 +141,10 @@ function WorkshopSetup() {
 
   // Critical confirmation dialog state
   const [showGenerateConfirm, setShowGenerateConfirm] = useState(false);
+  const [showSimpleGenerateConfirm, setShowSimpleGenerateConfirm] = useState(false);
+
+  // Check if any session has existing questions
+  const hasExistingQuestions = sessions.some(s => s.questions_generated);
 
   useEffect(() => {
     loadAllData();
@@ -213,7 +217,14 @@ function WorkshopSetup() {
       alert('Please add at least one session before generating questions.');
       return;
     }
-    setShowGenerateConfirm(true);
+
+    // Only show critical 3-step confirmation if there are existing questions to delete
+    if (hasExistingQuestions) {
+      setShowGenerateConfirm(true);
+    } else {
+      // For new workshops with no questions, show simple confirmation
+      setShowSimpleGenerateConfirm(true);
+    }
   };
 
   const handleGenerateQuestionsConfirm = async () => {
@@ -511,7 +522,7 @@ function WorkshopSetup() {
             className="flex items-center space-x-1.5 px-3 py-1.5 text-sm bg-gradient-to-r from-purple-500 to-nxsys-500 text-white rounded-lg hover:from-purple-600 hover:to-nxsys-600 disabled:opacity-50"
           >
             {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            <span>{generating ? 'Generating...' : 'Generate Questions'}</span>
+            <span>{generating ? 'Generating...' : hasExistingQuestions ? 'Regenerate Questions' : 'Generate Questions'}</span>
           </button>
         </div>
       </div>
@@ -759,7 +770,7 @@ function WorkshopSetup() {
             className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-purple-500 to-nxsys-500 text-white rounded-lg hover:from-purple-600 hover:to-nxsys-600 disabled:opacity-50 text-sm font-medium"
           >
             {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            <span>{generating ? 'Generating...' : 'Generate All Questions'}</span>
+            <span>{generating ? 'Generating...' : hasExistingQuestions ? 'Regenerate All Questions' : 'Generate All Questions'}</span>
           </button>
         </div>
       </section>
@@ -895,7 +906,54 @@ Examples:
         </div>
       )}
 
-      {/* Critical Generate Questions Confirmation Dialog */}
+      {/* Simple Generate Questions Confirmation (for new workshops with no existing questions) */}
+      {showSimpleGenerateConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-purple-500 to-nxsys-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <Sparkles className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Generate Questions</h3>
+                  <p className="text-purple-100 text-sm">AI-Powered Question Generation</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-gray-600 text-sm mb-4">
+                You are about to generate questions for <strong>{sessions.length} session(s)</strong>.
+                The AI will create discovery questions tailored to each session's module and topics.
+              </p>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <p className="text-purple-800 text-sm">
+                  This process may take a few minutes depending on the number of sessions.
+                </p>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-3">
+              <button
+                onClick={() => setShowSimpleGenerateConfirm(false)}
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowSimpleGenerateConfirm(false);
+                  handleGenerateQuestionsConfirm();
+                }}
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-purple-500 to-nxsys-500 text-white rounded-lg hover:from-purple-600 hover:to-nxsys-600 font-medium transition-colors"
+              >
+                Generate Questions
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Critical Generate Questions Confirmation Dialog (for regenerating existing questions) */}
       <CriticalConfirmDialog
         isOpen={showGenerateConfirm}
         onConfirm={handleGenerateQuestionsConfirm}
