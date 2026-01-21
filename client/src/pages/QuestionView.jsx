@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   getQuestion,
@@ -14,6 +14,7 @@ import {
   resetQuestionData,
   createInitialChecklist
 } from '../services/api';
+import useChunkedRecording from '../hooks/useChunkedRecording';
 import {
   ChevronLeft,
   ChevronRight,
@@ -70,16 +71,15 @@ function QuestionView() {
   const [selectedParticipantId, setSelectedParticipantId] = useState('');
   const [selectedRespondents, setSelectedRespondents] = useState([]);
 
-  const [isRecording, setIsRecording] = useState(false);
   const [pendingAudios, setPendingAudios] = useState([]);
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [audioLevel, setAudioLevel] = useState(0);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const timerRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const analyserRef = useRef(null);
-  const animationFrameRef = useRef(null);
+
+  // Chunked recording state tracking
+  const [chunkProcessingStatus, setChunkProcessingStatus] = useState([]);
+  const [sessionTranscriptions, setSessionTranscriptions] = useState([]);
+  const [isSessionProcessing, setIsSessionProcessing] = useState(false);
+  const questionRef = useRef(null); // Track question state for callbacks
+  const textResponseRef = useRef(''); // Track text response for callbacks
+  const loadDataRef = useRef(null); // Ref for loadData function
 
   const fileInputRef = useRef(null);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -103,15 +103,186 @@ function QuestionView() {
   // Critical confirmation dialog state
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
+  // Keep refs updated for use in callbacks
+  useEffect(() => {
+    questionRef.current = question;
+    textResponseRef.current = textResponse;
+  }, [question, textResponse]);
+
+  // Callback when a chunk is ready for processing
+  const handleChunkReady = useCallback(async (blob, chunkIndex, duration) => {
+    console.log(`Processing chunk ${chunkIndex} (${duration}s)`);
+
+    // Update status
+    setChunkProcessingStatus(prev => {
+      const newStatus = [...prev];
+      newStatus[chunkIndex] = { status: 'uploading', step: 1 };
+      return newStatus;
+    });
+
+    try {
+      // Ensure answer exists
+      let answerId = questionRef.current?.answer?.id;
+      if (!answerId) {
+        const saveResponse = await saveAnswer(questionId, {
+          text_response: textResponseRef.current,
+          respondent_name: selectedRespondents[0]?.name || respondentName,
+          respondent_role: selectedRespondents[0]?.role || respondentRole,
+          respondents: selectedRespondents,
+          notes,
+          status: 'in_progress'
+        });
+        answerId = saveResponse.data.id;
+        setStatus('in_progress');
+      }
+
+      // Upload chunk
+      setChunkProcessingStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[chunkIndex] = { status: 'uploading', step: 1 };
+        return newStatus;
+      });
+
+      const formData = new FormData();
+      formData.append('audio', blob, `recording-chunk-${chunkIndex}.webm`);
+      formData.append('duration_seconds', Math.round(duration));
+      formData.append('chunk_index', chunkIndex);
+      const uploadResponse = await uploadAudio(answerId, formData);
+      const audioId = uploadResponse.data.id;
+
+      // Transcribe chunk
+      setChunkProcessingStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[chunkIndex] = { status: 'transcribing', step: 2 };
+        return newStatus;
+      });
+
+      const transcribeResponse = await transcribeAudio(audioId);
+      const transcription = transcribeResponse.data.cleaned_transcription;
+
+      // Store transcription
+      setSessionTranscriptions(prev => {
+        const newTranscriptions = [...prev];
+        newTranscriptions[chunkIndex] = {
+          index: chunkIndex,
+          text: transcription,
+          audioId
+        };
+        return newTranscriptions;
+      });
+
+      // Mark as complete
+      setChunkProcessingStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[chunkIndex] = { status: 'complete', step: 3 };
+        return newStatus;
+      });
+
+      return { audioId, transcription };
+    } catch (error) {
+      setChunkProcessingStatus(prev => {
+        const newStatus = [...prev];
+        newStatus[chunkIndex] = { status: 'error', error: error.message };
+        return newStatus;
+      });
+      throw error;
+    }
+  }, [questionId, selectedRespondents, respondentName, respondentRole, notes]);
+
+  // Callback when all chunks are processed
+  const handleAllChunksComplete = useCallback(async (completedChunks, failedChunks) => {
+    console.log(`All chunks complete: ${completedChunks.length} succeeded, ${failedChunks.length} failed`);
+
+    if (failedChunks.length > 0) {
+      console.warn('Some chunks failed to process:', failedChunks);
+    }
+
+    if (completedChunks.length === 0) {
+      setIsSessionProcessing(false);
+      return;
+    }
+
+    setIsSessionProcessing(true);
+    setProcessingStep('analyzing');
+    setProcessingProgress(75);
+
+    try {
+      // Combine all transcriptions in order
+      const sortedTranscriptions = [...sessionTranscriptions]
+        .filter(t => t)
+        .sort((a, b) => a.index - b.index);
+
+      const combinedTranscription = sortedTranscriptions
+        .map((t, idx) => `[Part ${idx + 1}]\n${t.text}`)
+        .join('\n\n');
+
+      // Update text response with combined transcription
+      setTextResponse(prev => prev.trim()
+        ? prev + '\n\n--- Transcription ---\n' + combinedTranscription
+        : combinedTranscription
+      );
+
+      // Generate observation with all transcriptions
+      await createObservation(questionId);
+
+      setProcessingProgress(100);
+      setProcessingStep('complete');
+
+      // Reload data
+      if (loadDataRef.current) await loadDataRef.current();
+
+      setTimeout(() => {
+        setProcessingAudio(false);
+        setProcessingStep('');
+        setProcessingProgress(0);
+        setIsSessionProcessing(false);
+        setChunkProcessingStatus([]);
+        setSessionTranscriptions([]);
+      }, 1500);
+
+    } catch (error) {
+      console.error('Failed to finalize session:', error);
+      setProcessingStep('error');
+      setTimeout(() => {
+        setProcessingAudio(false);
+        setProcessingStep('');
+        setProcessingProgress(0);
+        setIsSessionProcessing(false);
+        alert('Processing failed: ' + error.message);
+      }, 2000);
+    }
+  }, [questionId, sessionTranscriptions]);
+
+  // Initialize chunked recording hook
+  const {
+    isRecording,
+    recordingTime,
+    audioLevel,
+    currentChunkTime,
+    sessionActive,
+    chunks,
+    processingChunks,
+    completedChunks,
+    totalChunks,
+    startRecording: startChunkedRecording,
+    stopRecording: stopChunkedRecording,
+    formatTime,
+    chunkDurationSeconds
+  } = useChunkedRecording({
+    onChunkReady: handleChunkReady,
+    onAllChunksComplete: handleAllChunksComplete
+  });
+
   useEffect(() => {
     // Reset the initial checklist flag when question changes
     initialChecklistFetchedRef.current = false;
+    // Reset chunk processing state
+    setChunkProcessingStatus([]);
+    setSessionTranscriptions([]);
+    setIsSessionProcessing(false);
     loadData();
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
       pendingAudios.forEach(a => URL.revokeObjectURL(a.url));
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
     };
   }, [questionId]);
 
@@ -186,6 +357,9 @@ function QuestionView() {
       setLoading(false);
     }
   };
+
+  // Update loadData ref for use in callbacks
+  loadDataRef.current = loadData;
 
   const handleParticipantChange = (participantId) => {
     setSelectedParticipantId(participantId);
@@ -273,145 +447,25 @@ function QuestionView() {
     }
   };
 
+  // Start chunked recording with UI updates
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-      });
-
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      analyserRef.current = audioContextRef.current.createAnalyser();
-      const source = audioContextRef.current.createMediaStreamSource(stream);
-      source.connect(analyserRef.current);
-      analyserRef.current.fftSize = 256;
-
-      const updateAudioLevel = () => {
-        if (!analyserRef.current) return;
-        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-        analyserRef.current.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-        setAudioLevel(Math.min(100, average * 1.5));
-        animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
-      };
-      updateAudioLevel();
-
-      let mimeType = 'audio/webm;codecs=opus';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'audio/webm';
-        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
-      }
-      mediaRecorderRef.current = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      audioChunksRef.current = [];
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
-      };
-
-      mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const duration = recordingTime;
-        stream.getTracks().forEach((track) => track.stop());
-        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-        if (audioContextRef.current) audioContextRef.current.close();
-        setAudioLevel(0);
-
-        // Auto-process: upload, transcribe, and analyze
-        autoProcessAudio(blob, duration);
-      };
-
-      mediaRecorderRef.current.start(1000);
-      setIsRecording(true);
-      setRecordingTime(0);
-      timerRef.current = setInterval(() => setRecordingTime((prev) => prev + 1), 1000);
+      setChunkProcessingStatus([]);
+      setSessionTranscriptions([]);
+      await startChunkedRecording();
+      setActiveTab('observation'); // Switch to observation tab to show progress
     } catch (error) {
       alert('Could not access microphone: ' + error.message);
     }
   };
 
+  // Stop recording - this will trigger chunk processing completion
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    }
-  };
-
-  // Auto-process audio: save -> upload -> transcribe -> analyze
-  const autoProcessAudio = async (audioBlob, duration) => {
-    setProcessingAudio(true);
-    setActiveTab('observation'); // Switch to observation tab to show progress
-
-    try {
-      // Step 1: Save answer if not exists
+    if (isRecording) {
+      setProcessingAudio(true);
       setProcessingStep('saving');
       setProcessingProgress(10);
-
-      let answerId = question.answer?.id;
-      if (!answerId) {
-        const saveResponse = await saveAnswer(questionId, {
-          text_response: textResponse,
-          respondent_name: selectedRespondents[0]?.name || respondentName,
-          respondent_role: selectedRespondents[0]?.role || respondentRole,
-          respondents: selectedRespondents,
-          notes,
-          status: 'in_progress'
-        });
-        answerId = saveResponse.data.id;
-        setStatus('in_progress');
-      }
-
-      // Step 2: Upload audio
-      setProcessingStep('uploading');
-      setProcessingProgress(25);
-
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.webm');
-      formData.append('duration_seconds', Math.round(duration));
-      const uploadResponse = await uploadAudio(answerId, formData);
-      const audioId = uploadResponse.data.id;
-
-      // Step 3: Transcribe
-      setProcessingStep('transcribing');
-      setProcessingProgress(50);
-
-      const transcribeResponse = await transcribeAudio(audioId);
-      const transcription = transcribeResponse.data.cleaned_transcription;
-
-      // Update text response with transcription
-      setTextResponse(prev => prev.trim()
-        ? prev + '\n\n--- Transcription ---\n' + transcription
-        : transcription
-      );
-
-      // Step 4: Generate observation
-      setProcessingStep('analyzing');
-      setProcessingProgress(75);
-
-      await createObservation(questionId);
-
-      // Complete
-      setProcessingProgress(100);
-      setProcessingStep('complete');
-
-      // Reload data to get updated observations
-      await loadData();
-
-      // Brief pause to show completion
-      setTimeout(() => {
-        setProcessingAudio(false);
-        setProcessingStep('');
-        setProcessingProgress(0);
-      }, 1500);
-
-    } catch (error) {
-      console.error('Auto-processing failed:', error);
-      setProcessingStep('error');
-      setTimeout(() => {
-        setProcessingAudio(false);
-        setProcessingStep('');
-        setProcessingProgress(0);
-        alert('Processing failed: ' + (error.response?.data?.error || error.message));
-      }, 2000);
+      stopChunkedRecording();
     }
   };
 
@@ -421,8 +475,6 @@ function QuestionView() {
       return prev.filter((_, i) => i !== index);
     });
   };
-
-  const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
 
   const handleDeleteAudio = async (audioId) => {
     if (!confirm('Delete this recording?')) return;
@@ -679,7 +731,7 @@ function QuestionView() {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">{audioCount > 0 ? `${audioCount} recording${audioCount > 1 ? 's' : ''}` : 'No recordings'}</span>
                 {!isRecording ? (
-                  <button onClick={startRecording} disabled={processingAudio}
+                  <button onClick={startRecording} disabled={processingAudio || sessionActive || isSessionProcessing}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50">
                     <Mic className="w-3.5 h-3.5" />Record
                   </button>
@@ -700,23 +752,87 @@ function QuestionView() {
               )}
 
               {isRecording && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
-                  <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-                  <span className="text-sm text-red-700 font-mono font-medium">{formatTime(recordingTime)}</span>
-                  <div className="flex-1 h-3 bg-red-200 rounded-full overflow-hidden">
-                    <div className="h-full bg-red-500 transition-all" style={{ width: `${audioLevel}%` }} />
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
+                    <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                    <span className="text-sm text-red-700 font-mono font-medium">{formatTime(recordingTime)}</span>
+                    <div className="flex-1 h-3 bg-red-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-red-500 transition-all" style={{ width: `${audioLevel}%` }} />
+                    </div>
+                    <span className="text-xs text-red-600">Recording...</span>
                   </div>
-                  <span className="text-xs text-red-600">Recording...</span>
+                  {/* Chunk progress indicator */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
+                    <span className="text-xs text-blue-700 font-medium">
+                      Chunk {totalChunks + 1}: {formatTime(currentChunkTime)} / {formatTime(chunkDurationSeconds)}
+                    </span>
+                    <div className="flex-1 h-1.5 bg-blue-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 transition-all"
+                        style={{ width: `${(currentChunkTime / chunkDurationSeconds) * 100}%` }}
+                      />
+                    </div>
+                    {totalChunks > 0 && (
+                      <span className="text-xs text-green-600 font-medium">
+                        {completedChunks.length}/{totalChunks} chunks processed
+                      </span>
+                    )}
+                  </div>
+                  {/* Show chunks being processed in background */}
+                  {processingChunks.length > 0 && (
+                    <div className="flex flex-wrap gap-1 px-3">
+                      {chunkProcessingStatus.map((status, idx) => status && (
+                        <span
+                          key={idx}
+                          className={`px-2 py-0.5 text-xs rounded-full ${
+                            status.status === 'complete' ? 'bg-green-100 text-green-700' :
+                            status.status === 'error' ? 'bg-red-100 text-red-700' :
+                            status.status === 'transcribing' ? 'bg-purple-100 text-purple-700' :
+                            'bg-blue-100 text-blue-700'
+                          }`}
+                        >
+                          Chunk {idx + 1}: {status.status === 'uploading' ? 'Uploading' :
+                            status.status === 'transcribing' ? 'Transcribing' :
+                            status.status === 'complete' ? 'Done' :
+                            status.status === 'error' ? 'Error' : status.status}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {processingAudio && (
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+              {(processingAudio || sessionActive) && !isRecording && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
-                    <span className="text-sm text-purple-700">Processing recording...</span>
+                    <span className="text-sm text-purple-700">
+                      Processing {totalChunks} chunk{totalChunks !== 1 ? 's' : ''}...
+                    </span>
                   </div>
-                  <p className="text-xs text-purple-600 mt-1">Check the Observation tab for progress</p>
+                  {/* Chunk status grid */}
+                  {chunkProcessingStatus.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {chunkProcessingStatus.map((status, idx) => status && (
+                        <span
+                          key={idx}
+                          className={`px-2 py-0.5 text-xs rounded-full flex items-center gap-1 ${
+                            status.status === 'complete' ? 'bg-green-100 text-green-700' :
+                            status.status === 'error' ? 'bg-red-100 text-red-700' :
+                            status.status === 'transcribing' ? 'bg-purple-100 text-purple-700' :
+                            'bg-blue-100 text-blue-700'
+                          }`}
+                        >
+                          {status.status !== 'complete' && status.status !== 'error' && (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          )}
+                          {status.status === 'complete' && <CheckCircle className="w-3 h-3" />}
+                          Chunk {idx + 1}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-purple-600">Check the Checklist tab for progress</p>
                 </div>
               )}
               {question.audioRecordings?.map((audio) => (
@@ -843,7 +959,7 @@ function QuestionView() {
                     </button>
                   )}
                   {!isRecording ? (
-                    <button onClick={startRecording} disabled={processingAudio || generatingInitialChecklist}
+                    <button onClick={startRecording} disabled={processingAudio || generatingInitialChecklist || sessionActive || isSessionProcessing}
                       className="flex items-center gap-1.5 px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 shadow-sm">
                       <Mic className="w-4 h-4" />Record Response
                     </button>
@@ -853,7 +969,7 @@ function QuestionView() {
                       <Square className="w-4 h-4" />Stop ({formatTime(recordingTime)})
                     </button>
                   )}
-                  <button onClick={handleCreateObservation} disabled={creatingObservation || processingAudio || generatingInitialChecklist || !question.answer}
+                  <button onClick={handleCreateObservation} disabled={creatingObservation || processingAudio || generatingInitialChecklist || isSessionProcessing || sessionActive || !question.answer}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-amber-100 text-amber-700 rounded hover:bg-amber-200 disabled:opacity-50">
                     {creatingObservation ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
                     {observations.length > 0 ? `Re-analyze` : 'Analyze'}
@@ -863,18 +979,69 @@ function QuestionView() {
 
               {/* Recording indicator */}
               {isRecording && (
-                <div className="flex items-center gap-3 p-3 bg-red-50 rounded-lg border border-red-200">
-                  <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-                  <span className="text-sm text-red-700 font-mono font-medium">{formatTime(recordingTime)}</span>
-                  <div className="flex-1 h-3 bg-red-200 rounded-full overflow-hidden">
-                    <div className="h-full bg-red-500 transition-all" style={{ width: `${audioLevel}%` }} />
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 p-3 bg-red-50 rounded-lg border border-red-200">
+                    <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                    <span className="text-sm text-red-700 font-mono font-medium">{formatTime(recordingTime)}</span>
+                    <div className="flex-1 h-3 bg-red-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-red-500 transition-all" style={{ width: `${audioLevel}%` }} />
+                    </div>
+                    <span className="text-xs text-red-600">Recording... Click Stop when done</span>
                   </div>
-                  <span className="text-xs text-red-600">Recording... Click Stop when done</span>
+                  {/* Chunk auto-split indicator */}
+                  <div className="flex items-center gap-3 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between text-xs text-blue-700 mb-1">
+                        <span className="font-medium">Current chunk: {totalChunks + 1}</span>
+                        <span>{formatTime(currentChunkTime)} / {formatTime(chunkDurationSeconds)}</span>
+                      </div>
+                      <div className="h-1.5 bg-blue-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-500 transition-all"
+                          style={{ width: `${(currentChunkTime / chunkDurationSeconds) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                    {totalChunks > 0 && (
+                      <div className="text-right">
+                        <span className="text-xs text-green-600 font-medium">
+                          {completedChunks.length} chunk{completedChunks.length !== 1 ? 's' : ''} processed
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  {/* Background chunk processing status */}
+                  {chunkProcessingStatus.some(s => s) && (
+                    <div className="flex flex-wrap gap-1 px-2">
+                      {chunkProcessingStatus.map((status, idx) => status && (
+                        <span
+                          key={idx}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full ${
+                            status.status === 'complete' ? 'bg-green-100 text-green-700' :
+                            status.status === 'error' ? 'bg-red-100 text-red-700' :
+                            status.status === 'transcribing' ? 'bg-purple-100 text-purple-700' :
+                            'bg-blue-100 text-blue-700'
+                          }`}
+                        >
+                          {status.status !== 'complete' && status.status !== 'error' && (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          )}
+                          {status.status === 'complete' && <CheckCircle className="w-3 h-3" />}
+                          Chunk {idx + 1}: {
+                            status.status === 'uploading' ? 'Uploading' :
+                            status.status === 'transcribing' ? 'Transcribing' :
+                            status.status === 'complete' ? 'Done' :
+                            status.status === 'error' ? 'Failed' : status.status
+                          }
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Auto-processing Progress Indicator */}
-              {processingAudio && (
+              {(processingAudio || isSessionProcessing) && !isRecording && (
                 <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200 p-4">
                   <div className="flex items-center gap-3 mb-3">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
@@ -891,15 +1058,15 @@ function QuestionView() {
                     </div>
                     <div className="flex-1">
                       <div className="text-sm font-medium text-gray-800">
-                        {processingStep === 'saving' && 'Saving response...'}
-                        {processingStep === 'uploading' && 'Uploading audio...'}
-                        {processingStep === 'transcribing' && 'Transcribing audio...'}
-                        {processingStep === 'analyzing' && 'Analyzing...'}
+                        {processingStep === 'saving' && `Processing ${totalChunks} audio chunk${totalChunks !== 1 ? 's' : ''}...`}
+                        {processingStep === 'uploading' && 'Uploading audio chunks...'}
+                        {processingStep === 'transcribing' && 'Transcribing audio chunks...'}
+                        {processingStep === 'analyzing' && 'Analyzing combined transcription...'}
                         {processingStep === 'complete' && 'Processing complete!'}
                         {processingStep === 'error' && 'Processing failed'}
                       </div>
                       <div className="text-xs text-gray-500">
-                        {processingStep === 'saving' && 'Preparing your response'}
+                        {processingStep === 'saving' && `${completedChunks.length} of ${totalChunks} chunks processed`}
                         {processingStep === 'uploading' && 'Sending audio to server'}
                         {processingStep === 'transcribing' && 'Converting speech to text'}
                         {processingStep === 'analyzing' && 'Generating insights from your response'}
@@ -908,6 +1075,30 @@ function QuestionView() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Chunk processing status */}
+                  {chunkProcessingStatus.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-3">
+                      {chunkProcessingStatus.map((status, idx) => status && (
+                        <span
+                          key={idx}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full ${
+                            status.status === 'complete' ? 'bg-green-100 text-green-700' :
+                            status.status === 'error' ? 'bg-red-100 text-red-700' :
+                            status.status === 'transcribing' ? 'bg-purple-100 text-purple-700' :
+                            'bg-blue-100 text-blue-700'
+                          }`}
+                        >
+                          {status.status !== 'complete' && status.status !== 'error' && (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          )}
+                          {status.status === 'complete' && <CheckCircle className="w-3 h-3" />}
+                          Chunk {idx + 1}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Progress Bar */}
                   <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div
@@ -920,7 +1111,7 @@ function QuestionView() {
                   </div>
                   {/* Step indicators */}
                   <div className="flex justify-between mt-2 text-xs text-gray-400">
-                    <span className={processingProgress >= 10 ? 'text-purple-600' : ''}>Save</span>
+                    <span className={processingProgress >= 10 ? 'text-purple-600' : ''}>Process</span>
                     <span className={processingProgress >= 25 ? 'text-purple-600' : ''}>Upload</span>
                     <span className={processingProgress >= 50 ? 'text-purple-600' : ''}>Transcribe</span>
                     <span className={processingProgress >= 75 ? 'text-purple-600' : ''}>Analyze</span>
