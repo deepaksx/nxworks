@@ -45,18 +45,54 @@ function Layout() {
             }}
           >❄</div>
 
-          {/* Circuit nodes - very slow pulse */}
-          <div className="absolute w-2.5 h-2.5 rounded-full border-2 border-nxsys-500/20 bg-white" style={{ left: '15%', top: '18px', animation: 'nodePulse 6s ease-in-out infinite' }}></div>
-          <div className="absolute w-2.5 h-2.5 rounded-full border-2 border-nxsys-500/20 bg-white" style={{ left: '35%', top: '23px', animation: 'nodePulse 6s ease-in-out infinite 1.5s' }}></div>
-          <div className="absolute w-2.5 h-2.5 rounded-full border-2 border-nxsys-500/20 bg-white" style={{ left: '55%', top: '43px', animation: 'nodePulse 6s ease-in-out infinite 3s' }}></div>
-          <div className="absolute w-2.5 h-2.5 rounded-full border-2 border-nxsys-500/20 bg-white" style={{ left: '75%', top: '18px', animation: 'nodePulse 6s ease-in-out infinite 4.5s' }}></div>
-          <div className="absolute w-2.5 h-2.5 rounded-full border-2 border-nxsys-500/20 bg-white" style={{ left: '90%', top: '28px', animation: 'nodePulse 6s ease-in-out infinite 2s' }}></div>
+          {/* Snowfall breeze effect - dense */}
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '2%', animation: 'snowfall1 12s ease-in-out infinite' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '5%', animation: 'snowfall2 14s ease-in-out infinite 2s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/30" style={{ left: '8%', animation: 'snowfall3 11s ease-in-out infinite 1s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '11%', animation: 'snowfall1 13s ease-in-out infinite 4s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '14%', animation: 'snowfall2 10s ease-in-out infinite 1.5s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '17%', animation: 'snowfall3 15s ease-in-out infinite 3s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '20%', animation: 'snowfall1 12s ease-in-out infinite 5s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '23%', animation: 'snowfall2 16s ease-in-out infinite 0.5s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/30" style={{ left: '26%', animation: 'snowfall3 11.5s ease-in-out infinite 3.5s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '29%', animation: 'snowfall1 14s ease-in-out infinite 1.2s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '32%', animation: 'snowfall2 11s ease-in-out infinite 6s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '35%', animation: 'snowfall3 13.5s ease-in-out infinite 4.5s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/30" style={{ left: '38%', animation: 'snowfall1 10s ease-in-out infinite 2.5s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '41%', animation: 'snowfall2 14.5s ease-in-out infinite 0.8s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '44%', animation: 'snowfall3 12.5s ease-in-out infinite 5.5s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '47%', animation: 'snowfall1 10.5s ease-in-out infinite 3.2s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '50%', animation: 'snowfall2 13.5s ease-in-out infinite 1.8s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '53%', animation: 'snowfall3 11s ease-in-out infinite 4.8s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/30" style={{ left: '56%', animation: 'snowfall1 15s ease-in-out infinite 0.4s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '59%', animation: 'snowfall2 10.5s ease-in-out infinite 3.8s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '62%', animation: 'snowfall3 13s ease-in-out infinite 6.5s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '65%', animation: 'snowfall1 11.5s ease-in-out infinite 1.4s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '68%', animation: 'snowfall2 14s ease-in-out infinite 5.2s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '71%', animation: 'snowfall3 10.8s ease-in-out infinite 2.6s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/30" style={{ left: '74%', animation: 'snowfall1 12.8s ease-in-out infinite 0.2s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '77%', animation: 'snowfall2 11.5s ease-in-out infinite 4.2s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '80%', animation: 'snowfall3 14.5s ease-in-out infinite 7s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '83%', animation: 'snowfall1 10.2s ease-in-out infinite 3.4s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '86%', animation: 'snowfall2 12.6s ease-in-out infinite 1s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '89%', animation: 'snowfall3 11.8s ease-in-out infinite 5.8s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/30" style={{ left: '92%', animation: 'snowfall1 14.2s ease-in-out infinite 2.2s' }}></div>
+          <div className="absolute w-1 h-1 rounded-full bg-nxsys-500/20" style={{ left: '95%', animation: 'snowfall2 11s ease-in-out infinite 1.6s' }}></div>
+          <div className="absolute w-1.5 h-1.5 rounded-full bg-nxsys-500/25" style={{ left: '98%', animation: 'snowfall3 13.5s ease-in-out infinite 4.6s' }}></div>
         </div>
 
         <div className="w-full mx-auto px-6 relative">
           <div className="flex justify-between items-center h-20">
             <Link to="/" className="flex items-center space-x-5">
-              <img src="/nxsys-logo.png" alt="NXSYS" className="h-12 w-auto" />
+              <img
+                src="/nxsys-logo.png"
+                alt="NXSYS"
+                className="h-16 w-auto drop-shadow-md hover:drop-shadow-lg transition-all duration-300"
+                style={{
+                  filter: 'contrast(1.05) brightness(1.02)',
+                  animation: 'logoGlow 3s ease-in-out infinite'
+                }}
+              />
               <div className="flex items-center">
                 <div className="w-px h-10 bg-gray-300 mx-4 hidden sm:block"></div>
                 <div className="hidden sm:block">
