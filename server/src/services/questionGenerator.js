@@ -539,6 +539,7 @@ ${moduleGuidance}
 [
   {
     "question_text": "The question",
+    "sub_module": "The specific sub-module/functional area (e.g., 'Purchasing Org', 'Material Master', 'Vendor Master', 'Purchase Order', 'Goods Receipt', 'Invoice Verification')",
     "category_name": "Category from section mapping above",
     "entity_code": "ENTITY or null for general",
     "is_critical": false,
@@ -546,6 +547,13 @@ ${moduleGuidance}
   }
 ]
 \`\`\`
+
+**IMPORTANT - Sub-Module Field:**
+Each question MUST include a "sub_module" field indicating the specific functional area within ${module}. Use concise, recognizable SAP terminology. Examples:
+- For MM: "Purchasing Org", "Material Master", "Vendor Master", "Material Groups", "Procurement", "Purchase Requisition", "Purchase Order", "Goods Receipt", "Invoice Verification", "Inventory Management", "Valuation"
+- For FICO: "Chart of Accounts", "GL Accounts", "Cost Centers", "Profit Centers", "AP", "AR", "Asset Accounting", "Bank Accounting", "Tax", "Closing"
+- For SD: "Sales Org", "Customer Master", "Pricing", "Sales Order", "Delivery", "Billing", "Credit Management", "Returns"
+- Use short, clear labels (2-3 words max)
 
 **FINAL CHECK BEFORE GENERATING:**
 - Are questions 1-10% about organizational structure?
@@ -583,14 +591,18 @@ Generate exactly ${targetCount} WELL-SEQUENCED questions strictly about ${module
 
     const questions = JSON.parse(jsonStr.trim());
 
-    return questions.map((q, index) => ({
-      question_number: index + 1,
-      question_text: q.question_text,
-      category_name: q.category_name || 'General',
-      entity_code: q.entity_code || null,
-      is_critical: !!q.is_critical,
-      ai_rationale: q.rationale || ''
-    }));
+    return questions.map((q, index) => {
+      // Prepend sub-module prefix to question text if provided
+      const subModulePrefix = q.sub_module ? `[${q.sub_module}] ` : '';
+      return {
+        question_number: index + 1,
+        question_text: subModulePrefix + q.question_text,
+        category_name: q.category_name || 'General',
+        entity_code: q.entity_code || null,
+        is_critical: !!q.is_critical,
+        ai_rationale: q.rationale || ''
+      };
+    });
   } catch (error) {
     console.error('Error generating questions:', error);
     throw new Error(`Failed to generate questions: ${error.message}`);
@@ -626,11 +638,13 @@ ${feedback || 'Please provide a better alternative that is more specific and act
 - Specific and actionable
 - Professional but conversational
 - Should uncover requirements or pain points
+- Include a sub_module tag indicating the specific functional area
 
 Return JSON:
 \`\`\`json
 {
-  "question_text": "The improved question",
+  "question_text": "The improved question (without prefix)",
+  "sub_module": "Specific functional area (e.g., 'Purchasing Org', 'Material Master', 'GL Accounts')",
   "category_name": "Appropriate category",
   "is_critical": true/false,
   "rationale": "Why this question is better"
@@ -656,7 +670,12 @@ Return JSON:
       jsonStr = jsonMatch[1];
     }
 
-    return JSON.parse(jsonStr.trim());
+    const result = JSON.parse(jsonStr.trim());
+    // Prepend sub-module prefix to question text if provided
+    if (result.sub_module) {
+      result.question_text = `[${result.sub_module}] ${result.question_text}`;
+    }
+    return result;
   } catch (error) {
     console.error('Error regenerating question:', error);
     throw new Error(`Failed to regenerate question: ${error.message}`);
