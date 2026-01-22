@@ -156,7 +156,19 @@ function SessionView() {
         />
       )}
 
-      {/* Compact Header */}
+      {/* Checklist Mode View - has its own integrated header */}
+      {session.checklist_mode ? (
+        <ChecklistModeView
+          workshopId={workshopId}
+          sessionId={sessionId}
+          session={session}
+          participants={participants}
+          onShowParticipants={() => setShowParticipantsModal(true)}
+          onStatusChange={handleStatusChange}
+        />
+      ) : (
+      <>
+      {/* Compact Header - only shown for non-checklist mode */}
       <div className="flex items-center justify-between bg-white rounded-lg p-3 shadow-sm border border-gray-100">
         <div className="flex items-center space-x-3">
           <Link to={`/workshop/${workshopId}`} className="p-1 hover:bg-gray-100 rounded transition-colors">
@@ -184,15 +196,6 @@ function SessionView() {
           </select>
         </div>
       </div>
-
-      {/* Checklist Mode View */}
-      {session.checklist_mode ? (
-        <ChecklistModeView
-          workshopId={workshopId}
-          sessionId={sessionId}
-          session={session}
-        />
-      ) : (
       <>
       {/* Entity Tabs + Filters */}
       <div className="flex items-center justify-between bg-white rounded-lg p-2 shadow-sm border border-gray-100">
@@ -411,6 +414,7 @@ function SessionView() {
           )}
         </div>
       )}
+      </>
       </>
       )}
     </div>

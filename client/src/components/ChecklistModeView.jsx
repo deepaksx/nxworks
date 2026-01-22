@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useChunkedRecording } from '../hooks/useChunkedRecording';
 import {
   getSessionChecklist,
@@ -28,7 +29,7 @@ import {
   Clock,
   ChevronDown,
   ChevronUp,
-  Settings,
+  ChevronLeft,
   Lightbulb,
   AlertCircle,
   Info,
@@ -44,20 +45,17 @@ import {
   Trash2,
   RotateCcw,
   FileDown,
-  Eye
+  Eye,
+  Users,
+  BarChart3,
+  List,
+  LayoutGrid
 } from 'lucide-react';
 
-// Chunk duration options in seconds
-const CHUNK_DURATION_OPTIONS = [
-  { value: 60, label: '1 minute' },
-  { value: 2 * 60, label: '2 minutes' },
-  { value: 3 * 60, label: '3 minutes' },
-  { value: 5 * 60, label: '5 minutes' },
-  { value: 10 * 60, label: '10 minutes' },
-  { value: 15 * 60, label: '15 minutes' }
-];
+// Fixed chunk duration: 1 minute
+const CHUNK_DURATION_SECONDS = 60;
 
-function ChecklistModeView({ workshopId, sessionId, session }) {
+function ChecklistModeView({ workshopId, sessionId, session, participants = [], onShowParticipants, onStatusChange }) {
   const [checklist, setChecklist] = useState({ missing: [], obtained: [] });
   const [stats, setStats] = useState({
     total: 0,
@@ -73,9 +71,6 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
   const [loading, setLoading] = useState(true);
   const [chunkProcessingStatus, setChunkProcessingStatus] = useState([]);
   const [expandedCategories, setExpandedCategories] = useState({});
-  const [showSettings, setShowSettings] = useState(false);
-  const [chunkDuration, setChunkDuration] = useState(60); // Default 1 minute
-  const settingsRef = useRef(null);
   const documentInputRef = useRef(null);
   const [documentUploadStatus, setDocumentUploadStatus] = useState(null); // null, 'uploading', 'analyzing', 'complete', 'error'
   const [documentUploadMessage, setDocumentUploadMessage] = useState('');
@@ -85,26 +80,14 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
   const [transcriptContent, setTranscriptContent] = useState('');
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [bestPracticeItem, setBestPracticeItem] = useState(null); // Item to show best practice modal for
-  const [findingsRiskTab, setFindingsRiskTab] = useState('all'); // 'all', 'high', 'medium', 'low'
   const [implicationsFinding, setImplicationsFinding] = useState(null); // Finding to show implications modal for
+  const [selectedFindingsCategory, setSelectedFindingsCategory] = useState(null); // Category to show in popup
   const [retryingChunks, setRetryingChunks] = useState(false); // Retrying failed chunks
+  const [headerCollapsed, setHeaderCollapsed] = useState(false); // Collapsible header state
+  const [findingsViewMode, setFindingsViewMode] = useState('chart'); // 'chart' or 'list'
+  const [findingsFilterCategory, setFindingsFilterCategory] = useState(null);
+  const [findingsFilterRisk, setFindingsFilterRisk] = useState(null);
 
-  // Close settings dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (settingsRef.current && !settingsRef.current.contains(event.target)) {
-        setShowSettings(false);
-      }
-    };
-
-    if (showSettings) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showSettings]);
 
   // Load checklist on mount
   useEffect(() => {
@@ -409,7 +392,7 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
   } = useChunkedRecording({
     onChunkReady: handleChunkReady,
     onAllChunksComplete: handleAllChunksComplete,
-    chunkDurationSeconds: chunkDuration
+    chunkDurationSeconds: CHUNK_DURATION_SECONDS
   });
 
   const toggleCategory = (category) => {
@@ -452,214 +435,422 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
 
   return (
     <div className="space-y-4">
-      {/* Header with progress */}
-      <div className="bg-white rounded-lg shadow-sm border p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">{session?.name || 'Session'}</h2>
-            <p className="text-sm text-gray-500">Direct Checklist Mode</p>
-          </div>
-          <div className="flex items-center gap-3">
-            {/* Settings dropdown */}
-            <div className="relative" ref={settingsRef}>
+      {/* Hidden file input for document upload */}
+      <input
+        type="file"
+        ref={documentInputRef}
+        onChange={handleDocumentUpload}
+        accept=".pdf,.doc,.docx,.txt,.csv"
+        className="hidden"
+      />
+
+      {/* Unified Collapsible Header */}
+      <div className="bg-white rounded-lg shadow-sm border">
+        {/* Collapsed Header Bar */}
+        {headerCollapsed ? (
+          <div className="px-3 py-2 flex items-center gap-3">
+            {/* Back button */}
+            <Link to={`/workshop/${workshopId}`} className="p-1 hover:bg-gray-100 rounded transition-colors">
+              <ChevronLeft className="w-4 h-4 text-gray-600" />
+            </Link>
+
+            {/* Session name */}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-sm font-bold text-purple-600">S{session?.session_number}</span>
+              <span className="text-sm font-medium text-gray-900 truncate max-w-[120px]">{session?.name}</span>
+            </div>
+
+            {/* Mini pie chart with stats */}
+            <div className="flex items-center gap-2">
+              <svg width="20" height="20" viewBox="0 0 24 24" className="transform -rotate-90">
+                <circle cx="12" cy="12" r="10" fill="none" stroke="#e5e7eb" strokeWidth="4" />
+                <circle
+                  cx="12" cy="12" r="10" fill="none" stroke="#22c55e" strokeWidth="4"
+                  strokeDasharray={`${stats.completionPercent * 0.628} 62.8`}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span className="text-xs font-medium text-gray-600 whitespace-nowrap">
+                {stats.obtained}/{stats.total}
+              </span>
+            </div>
+
+            {/* Compact stats */}
+            <div className="flex items-center gap-2 text-xs">
+              <span className="flex items-center gap-1 text-red-600 whitespace-nowrap">
+                <AlertTriangle className="w-3 h-3" />
+                {stats.criticalMissing}
+              </span>
+              <span className="flex items-center gap-1 text-green-600 whitespace-nowrap">
+                <CheckCircle className="w-3 h-3" />
+                {stats.criticalObtained}
+              </span>
+            </div>
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Compact action buttons */}
+            <div className="flex items-center gap-1">
               <button
-                onClick={() => setShowSettings(!showSettings)}
-                disabled={isRecording}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                title="Recording Settings"
+                onClick={() => window.open(getExportExcelUrl(sessionId), '_blank')}
+                disabled={isRecording || stats.total === 0}
+                className="p-1 text-green-600 hover:bg-green-50 rounded disabled:opacity-50"
+                title="Download Excel Report"
               >
-                <Settings className="w-4 h-4" />
+                <Download className="w-4 h-4" />
               </button>
-              {showSettings && !isRecording && (
-                <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50 p-4">
-                  <h4 className="text-sm font-medium text-gray-900 mb-3">Recording Settings</h4>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Chunk Duration
-                    </label>
-                    <select
-                      value={chunkDuration}
-                      onChange={(e) => setChunkDuration(Number(e.target.value))}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
-                    >
-                      {CHUNK_DURATION_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Audio is transcribed and analyzed after each chunk completes.
-                    </p>
+
+              <button
+                onClick={() => documentInputRef.current?.click()}
+                disabled={documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing'}
+                className="p-1 text-blue-600 hover:bg-blue-50 rounded disabled:opacity-50"
+                title="Upload Document"
+              >
+                {documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileUp className="w-4 h-4" />
+                )}
+              </button>
+
+              <button
+                onClick={handleReanalyze}
+                disabled={isRecording || reanalyzeStatus === 'analyzing' || stats.obtained === 0}
+                className="p-1 text-purple-600 hover:bg-purple-50 rounded disabled:opacity-50"
+                title="Re-analyze all transcripts"
+              >
+                {reanalyzeStatus === 'analyzing' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-4 h-4" />
+                )}
+              </button>
+
+              <button
+                onClick={loadChecklist}
+                disabled={isRecording}
+                className="p-1 text-gray-500 hover:bg-gray-100 rounded disabled:opacity-50"
+                title="Refresh"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+
+              {/* Record button */}
+              {!isRecording ? (
+                <button
+                  onClick={startRecording}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs rounded-md hover:from-purple-700 hover:to-indigo-700"
+                >
+                  <Mic className="w-3.5 h-3.5" />
+                  Record
+                </button>
+              ) : (
+                <button
+                  onClick={stopRecording}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-red-600 text-white text-xs rounded-md hover:bg-red-700 animate-pulse"
+                >
+                  <Square className="w-3 h-3" />
+                  {formatTime(recordingTime)}
+                </button>
+              )}
+
+              {/* Participants */}
+              {onShowParticipants && (
+                <button
+                  onClick={onShowParticipants}
+                  className="flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  <Users className="w-3.5 h-3.5 text-gray-600" />
+                  {participants.length}
+                </button>
+              )}
+
+              {/* Status dropdown */}
+              {onStatusChange && (
+                <select
+                  value={session?.status || 'not_started'}
+                  onChange={(e) => onStatusChange(e.target.value)}
+                  className="px-2 py-1 border border-gray-300 rounded text-xs"
+                >
+                  <option value="not_started">Not Started</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="completed">Completed</option>
+                </select>
+              )}
+
+              {/* Expand button */}
+              <button
+                onClick={() => setHeaderCollapsed(false)}
+                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                title="Expand header"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Expanded Header */
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                {/* Back button */}
+                <Link to={`/workshop/${workshopId}`} className="p-1 hover:bg-gray-100 rounded transition-colors">
+                  <ChevronLeft className="w-5 h-5 text-gray-600" />
+                </Link>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-bold text-purple-600">S{session?.session_number}</span>
+                    <h2 className="text-lg font-semibold text-gray-900">{session?.name || 'Session'}</h2>
+                  </div>
+                  <p className="text-sm text-gray-500">Direct Checklist Mode</p>
+                </div>
+              </div>
+
+              {/* Inline Recording Status - shows in the middle when recording */}
+              {isRecording && (
+                <div className="flex-1 mx-6 bg-red-50 border border-red-200 rounded-lg px-4 py-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                      <span className="text-sm font-medium text-red-800">Recording in Progress</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-red-700">
+                      <Clock className="w-3 h-3" />
+                      <span>Total: {formatTime(recordingTime)}</span>
+                      <span className="text-red-300">|</span>
+                      <span>Chunk: {formatTime(currentChunkTime)} / {formatTime(chunkDurationSeconds)}</span>
+                    </div>
+                  </div>
+                  {/* Audio level bar */}
+                  <div className="h-1.5 bg-red-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-red-500 transition-all duration-75"
+                      style={{ width: `${audioLevel}%` }}
+                    />
+                  </div>
+                  {/* Chunk status */}
+                  <div className="mt-1.5 flex items-center gap-3 text-xs">
+                    {chunkProcessingStatus.length > 0 ? (
+                      <>
+                        <span className="text-gray-600">
+                          Chunks: {chunkProcessingStatus.filter(s => s.status === 'complete').length}/{chunkProcessingStatus.length}
+                        </span>
+                        <span className="text-green-600 font-medium">
+                          +{chunkProcessingStatus.reduce((sum, s) => sum + (s.obtainedCount || 0), 0)} items
+                        </span>
+                        {chunkProcessingStatus.some(s => s.status === 'uploading' || s.status === 'analyzing') && (
+                          <span className="flex items-center gap-1 text-blue-600">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Processing...
+                          </span>
+                        )}
+                        {chunkProcessingStatus.some(s => s.status === 'error') && (
+                          <>
+                            <span className="text-red-600">
+                              {chunkProcessingStatus.filter(s => s.status === 'error').length} failed
+                            </span>
+                            <button
+                              onClick={handleRetryFailedChunks}
+                              disabled={retryingChunks}
+                              className="flex items-center gap-1 px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                            >
+                              {retryingChunks ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                              Retry
+                            </button>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-gray-500">Recording will be analyzed in chunks...</span>
+                    )}
                   </div>
                 </div>
               )}
+              <div className="flex items-center gap-3">
+                {/* Download Excel button */}
+                <button
+                  onClick={() => window.open(getExportExcelUrl(sessionId), '_blank')}
+                  disabled={isRecording || stats.total === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-green-300 text-green-700 bg-green-50 rounded-lg hover:bg-green-100 disabled:opacity-50"
+                  title="Download Excel Report"
+                >
+                  <Download className="w-4 h-4" />
+                  Excel
+                </button>
+
+                {/* Document upload button */}
+                <button
+                  onClick={() => documentInputRef.current?.click()}
+                  disabled={documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-blue-300 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50"
+                  title="Upload Document (PDF, Word, TXT)"
+                >
+                  {documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FileUp className="w-4 h-4" />
+                  )}
+                  Document
+                </button>
+
+                {/* Re-analyse button */}
+                <button
+                  onClick={handleReanalyze}
+                  disabled={isRecording || reanalyzeStatus === 'analyzing' || stats.obtained === 0}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg disabled:opacity-50 ${
+                    reanalyzeStatus === 'complete' ? 'border-green-300 text-green-700 bg-green-50' :
+                    reanalyzeStatus === 'error' ? 'border-red-300 text-red-700 bg-red-50' :
+                    'border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100'
+                  }`}
+                  title="Re-analyze all transcripts with stricter criteria"
+                >
+                  {reanalyzeStatus === 'analyzing' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-4 h-4" />
+                  )}
+                  Re-analyse
+                </button>
+
+                <button
+                  onClick={loadChecklist}
+                  disabled={isRecording}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Refresh
+                </button>
+                {/* Record button */}
+                {!isRecording ? (
+                  <button
+                    onClick={startRecording}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 shadow-md"
+                  >
+                    <Mic className="w-4 h-4" />
+                    Record Session
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopRecording}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 animate-pulse shadow-md"
+                  >
+                    <Square className="w-4 h-4" />
+                    Stop ({formatTime(recordingTime)})
+                  </button>
+                )}
+
+                {/* Participants */}
+                {onShowParticipants && (
+                  <button
+                    onClick={onShowParticipants}
+                    className="flex items-center px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                  >
+                    <Users className="w-4 h-4 mr-1 text-gray-600" />
+                    {participants.length}
+                  </button>
+                )}
+
+                {/* Status dropdown */}
+                {onStatusChange && (
+                  <select
+                    value={session?.status || 'not_started'}
+                    onChange={(e) => onStatusChange(e.target.value)}
+                    className="px-2 py-1 border border-gray-300 rounded text-sm"
+                  >
+                    <option value="not_started">Not Started</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                )}
+
+                {/* Collapse button */}
+                <button
+                  onClick={() => setHeaderCollapsed(true)}
+                  className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                  title="Collapse header"
+                >
+                  <ChevronUp className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            {/* Download Excel button */}
-            <button
-              onClick={() => window.open(getExportExcelUrl(sessionId), '_blank')}
-              disabled={isRecording || stats.total === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-green-300 text-green-700 bg-green-50 rounded-lg hover:bg-green-100 disabled:opacity-50"
-              title="Download Excel Report"
-            >
-              <Download className="w-4 h-4" />
-              Excel
-            </button>
-
-            {/* Document upload button */}
-            <input
-              type="file"
-              ref={documentInputRef}
-              onChange={handleDocumentUpload}
-              accept=".pdf,.doc,.docx,.txt,.csv"
-              className="hidden"
-            />
-            <button
-              onClick={() => documentInputRef.current?.click()}
-              disabled={documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing'}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-blue-300 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50"
-              title="Upload Document (PDF, Word, TXT)"
-            >
-              {documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing' ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <FileUp className="w-4 h-4" />
-              )}
-              Document
-            </button>
-
-            {/* Re-analyse button */}
-            <button
-              onClick={handleReanalyze}
-              disabled={isRecording || reanalyzeStatus === 'analyzing' || stats.obtained === 0}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg disabled:opacity-50 ${
-                reanalyzeStatus === 'complete' ? 'border-green-300 text-green-700 bg-green-50' :
-                reanalyzeStatus === 'error' ? 'border-red-300 text-red-700 bg-red-50' :
-                'border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100'
-              }`}
-              title="Re-analyze all transcripts with stricter criteria"
-            >
-              {reanalyzeStatus === 'analyzing' ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RotateCcw className="w-4 h-4" />
-              )}
-              Re-analyse
-            </button>
-
-            <button
-              onClick={loadChecklist}
-              disabled={isRecording}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
-            </button>
-            {!isRecording ? (
-              <button
-                onClick={startRecording}
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 shadow-md"
-              >
-                <Mic className="w-4 h-4" />
-                Record Session
-              </button>
-            ) : (
-              <button
-                onClick={stopRecording}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 animate-pulse shadow-md"
-              >
-                <Square className="w-4 h-4" />
-                Stop ({formatTime(recordingTime)})
-              </button>
-            )}
+            {/* Quick stats with pie chart */}
+            <div className="flex items-center gap-4 text-xs">
+              {/* Mini pie chart */}
+              <div className="flex items-center gap-2">
+                <svg width="24" height="24" viewBox="0 0 24 24" className="transform -rotate-90">
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    fill="none"
+                    stroke="#e5e7eb"
+                    strokeWidth="4"
+                  />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    fill="none"
+                    stroke="#22c55e"
+                    strokeWidth="4"
+                    strokeDasharray={`${stats.completionPercent * 0.628} 62.8`}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span className="text-sm font-medium text-gray-700">
+                  {stats.obtained}/{stats.total} ({stats.completionPercent}%)
+                </span>
+              </div>
+              <span className="text-gray-300">|</span>
+              <span className="flex items-center gap-1 text-red-600">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                {stats.criticalMissing} critical missing
+              </span>
+              <span className="flex items-center gap-1 text-green-600">
+                <CheckCircle className="w-3.5 h-3.5" />
+                {stats.criticalObtained} critical obtained
+              </span>
+            </div>
           </div>
-        </div>
-
-        {/* Progress bar */}
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-4 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-green-400 to-green-600 transition-all duration-500"
-              style={{ width: `${stats.completionPercent}%` }}
-            />
-          </div>
-          <span className="text-sm font-medium text-gray-700 min-w-[100px] text-right">
-            {stats.obtained}/{stats.total} ({stats.completionPercent}%)
-          </span>
-        </div>
-
-        {/* Quick stats */}
-        <div className="flex items-center gap-4 mt-3 text-xs">
-          <span className="flex items-center gap-1 text-red-600">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            {stats.criticalMissing} critical missing
-          </span>
-          <span className="flex items-center gap-1 text-green-600">
-            <CheckCircle className="w-3.5 h-3.5" />
-            {stats.criticalObtained} critical obtained
-          </span>
-        </div>
+        )}
       </div>
 
-      {/* Recording status */}
-      {isRecording && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-              <span className="font-medium text-red-800">Recording in Progress</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-red-700">
-              <Clock className="w-4 h-4" />
-              <span>Total: {formatTime(recordingTime)}</span>
-              <span className="text-red-400">|</span>
-              <span>Chunk: {formatTime(currentChunkTime)} / {formatTime(chunkDurationSeconds)}</span>
-            </div>
+      {/* Recording status - Only shown when header is collapsed (expanded header has it inline) */}
+      {isRecording && headerCollapsed && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-3">
+          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+          <div className="flex items-center gap-2 text-xs text-red-700">
+            <Clock className="w-3 h-3" />
+            <span>{formatTime(recordingTime)}</span>
+            <span className="text-red-300">|</span>
+            <span>Chunk: {formatTime(currentChunkTime)}/{formatTime(chunkDurationSeconds)}</span>
           </div>
-
-          {/* Audio level indicator */}
-          <div className="h-2 bg-red-200 rounded-full overflow-hidden">
+          {/* Mini audio level */}
+          <div className="w-16 h-1.5 bg-red-200 rounded-full overflow-hidden">
             <div
               className="h-full bg-red-500 transition-all duration-75"
               style={{ width: `${audioLevel}%` }}
             />
           </div>
-
-          {/* Chunk processing status - single line */}
-          <div className="mt-3 flex items-center gap-3 text-xs">
-            {chunkProcessingStatus.length > 0 ? (
-              <>
-                <span className="text-gray-600">
-                  Chunks: {chunkProcessingStatus.filter(s => s.status === 'complete').length}/{chunkProcessingStatus.length}
-                </span>
-                <span className="text-green-600 font-medium">
-                  +{chunkProcessingStatus.reduce((sum, s) => sum + (s.obtainedCount || 0), 0)} items
-                </span>
-                {chunkProcessingStatus.some(s => s.status === 'uploading' || s.status === 'analyzing') && (
-                  <span className="flex items-center gap-1 text-blue-600">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Processing...
-                  </span>
-                )}
-                {chunkProcessingStatus.some(s => s.status === 'error') && (
-                  <>
-                    <span className="text-red-600" title={chunkProcessingStatus.filter(s => s.status === 'error').map(s => s.message).join(', ')}>
-                      {chunkProcessingStatus.filter(s => s.status === 'error').length} failed
-                    </span>
-                    <button
-                      onClick={handleRetryFailedChunks}
-                      disabled={retryingChunks}
-                      className="flex items-center gap-1 px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-                    >
-                      {retryingChunks ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                      Retry Failed
-                    </button>
-                  </>
-                )}
-              </>
-            ) : (
-              <span className="text-gray-500">Recording will be analyzed in chunks...</span>
-            )}
-          </div>
+          {/* Compact chunk status */}
+          {chunkProcessingStatus.length > 0 && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-600">
+                {chunkProcessingStatus.filter(s => s.status === 'complete').length}/{chunkProcessingStatus.length}
+              </span>
+              <span className="text-green-600 font-medium">
+                +{chunkProcessingStatus.reduce((sum, s) => sum + (s.obtainedCount || 0), 0)}
+              </span>
+              {chunkProcessingStatus.some(s => s.status === 'uploading' || s.status === 'analyzing') && (
+                <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
+              )}
+              {chunkProcessingStatus.some(s => s.status === 'error') && (
+                <span className="text-red-600">{chunkProcessingStatus.filter(s => s.status === 'error').length} err</span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -986,76 +1177,352 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
 
           {activeTab === 'findings' && (
             <div className="space-y-4">
-              {/* Risk level sub-tabs */}
-              <div className="flex border-b border-gray-200">
-                <button
-                  onClick={() => setFindingsRiskTab('all')}
-                  className={`px-4 py-2 text-sm font-medium transition-colors ${
-                    findingsRiskTab === 'all'
-                      ? 'border-b-2 border-purple-500 text-purple-700'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  All ({findings.stats?.total || 0})
-                </button>
-                <button
-                  onClick={() => setFindingsRiskTab('high')}
-                  className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                    findingsRiskTab === 'high'
-                      ? 'border-b-2 border-red-500 text-red-700'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  <AlertCircle className="w-4 h-4" />
-                  High Risk ({findings.stats?.highRisk || 0})
-                </button>
-                <button
-                  onClick={() => setFindingsRiskTab('medium')}
-                  className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                    findingsRiskTab === 'medium'
-                      ? 'border-b-2 border-yellow-500 text-yellow-700'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  <AlertTriangle className="w-4 h-4" />
-                  Medium Risk ({findings.stats?.mediumRisk || 0})
-                </button>
-                <button
-                  onClick={() => setFindingsRiskTab('low')}
-                  className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                    findingsRiskTab === 'low'
-                      ? 'border-b-2 border-blue-500 text-blue-700'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  <Info className="w-4 h-4" />
-                  Low Risk ({findings.stats?.lowRisk || 0})
-                </button>
+              {/* Summary stats and view toggle */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4 text-sm">
+                  <button
+                    onClick={() => setFindingsFilterRisk(null)}
+                    className={`px-2 py-1 rounded transition-colors ${!findingsFilterRisk ? 'bg-gray-200 font-medium' : 'hover:bg-gray-100'} text-gray-600`}
+                  >
+                    Total: <strong>{findings.stats?.total || 0}</strong>
+                  </button>
+                  <button
+                    onClick={() => setFindingsFilterRisk(findingsFilterRisk === 'high' ? null : 'high')}
+                    className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${findingsFilterRisk === 'high' ? 'bg-red-100 ring-2 ring-red-500' : 'hover:bg-red-50'} text-red-600`}
+                  >
+                    <span className="w-3 h-3 bg-red-500 rounded-sm"></span>
+                    High: {findings.stats?.highRisk || 0}
+                  </button>
+                  <button
+                    onClick={() => setFindingsFilterRisk(findingsFilterRisk === 'medium' ? null : 'medium')}
+                    className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${findingsFilterRisk === 'medium' ? 'bg-yellow-100 ring-2 ring-yellow-500' : 'hover:bg-yellow-50'} text-yellow-600`}
+                  >
+                    <span className="w-3 h-3 bg-yellow-500 rounded-sm"></span>
+                    Medium: {findings.stats?.mediumRisk || 0}
+                  </button>
+                  <button
+                    onClick={() => setFindingsFilterRisk(findingsFilterRisk === 'low' ? null : 'low')}
+                    className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${findingsFilterRisk === 'low' ? 'bg-yellow-100 ring-2 ring-yellow-300' : 'hover:bg-yellow-50'} text-yellow-500`}
+                  >
+                    <span className="w-3 h-3 bg-yellow-300 rounded-sm"></span>
+                    Low: {findings.stats?.lowRisk || 0}
+                  </button>
+                </div>
+                {/* View toggle */}
+                <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setFindingsViewMode('chart')}
+                    className={`p-1.5 rounded ${findingsViewMode === 'chart' ? 'bg-white shadow text-purple-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    title="Chart view"
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setFindingsViewMode('tiles')}
+                    className={`p-1.5 rounded ${findingsViewMode === 'tiles' ? 'bg-white shadow text-purple-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    title="Tiles view"
+                  >
+                    <LayoutGrid className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setFindingsViewMode('list')}
+                    className={`p-1.5 rounded ${findingsViewMode === 'list' ? 'bg-white shadow text-purple-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    title="List view"
+                  >
+                    <List className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
-              {/* Filtered findings list */}
-              {(() => {
-                const filteredFindings = findingsRiskTab === 'all'
-                  ? findings.all
-                  : findings.all?.filter(f => f.sap_risk_level === findingsRiskTab);
+              {/* Empty state */}
+              {(!findings.all || findings.all.length === 0) && (
+                <div className="text-center py-8 text-gray-500">
+                  <Lightbulb className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                  <p className="font-medium">No findings yet</p>
+                  <p className="text-sm mt-1">
+                    When you discuss topics beyond the checklist, the system will capture them here.
+                  </p>
+                </div>
+              )}
 
-                if (!filteredFindings || filteredFindings.length === 0) {
-                  return (
-                    <div className="text-center py-8 text-gray-500">
-                      <Lightbulb className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-                      <p className="font-medium">
-                        {findingsRiskTab === 'all' ? 'No additional findings yet' : `No ${findingsRiskTab} risk findings`}
-                      </p>
-                      <p className="text-sm mt-1">
-                        When you discuss topics beyond the checklist, the system will capture them here with SAP best practice analysis.
-                      </p>
+              {/* Chart view - Horizontal bar chart by category */}
+              {findingsViewMode === 'chart' && findings.all && findings.all.length > 0 && (() => {
+                // Group findings by category (finding_type) - Business-friendly labels
+                const categoryLabels = {
+                  process: 'Business Process',
+                  pain_point: 'Current Challenges',
+                  integration: 'System Integration',
+                  compliance: 'Compliance & Audit',
+                  performance: 'Efficiency & Performance',
+                  workaround: 'Manual Workarounds',
+                  requirement: 'Business Requirements',
+                  other: 'General Observations'
+                };
+
+                const groupedByCategory = {};
+                findings.all.forEach(f => {
+                  const cat = f.finding_type || 'other';
+                  if (!groupedByCategory[cat]) {
+                    groupedByCategory[cat] = { high: [], medium: [], low: [] };
+                  }
+                  const risk = f.sap_risk_level || 'medium';
+                  groupedByCategory[cat][risk].push(f);
+                });
+
+                // Calculate max total for scaling
+                const maxTotal = Math.max(
+                  ...Object.values(groupedByCategory).map(g => g.high.length + g.medium.length + g.low.length),
+                  1
+                );
+
+                return (
+                  <div className="space-y-3">
+                    {Object.entries(groupedByCategory)
+                      .sort((a, b) => {
+                        const totalA = a[1].high.length + a[1].medium.length + a[1].low.length;
+                        const totalB = b[1].high.length + b[1].medium.length + b[1].low.length;
+                        return totalB - totalA;
+                      })
+                      .map(([category, counts]) => {
+                        const total = counts.high.length + counts.medium.length + counts.low.length;
+                        const highPct = (counts.high.length / maxTotal) * 100;
+                        const mediumPct = (counts.medium.length / maxTotal) * 100;
+                        const lowPct = (counts.low.length / maxTotal) * 100;
+
+                        return (
+                          <div
+                            key={category}
+                            className="flex items-center gap-3 p-2 rounded-lg transition-colors hover:bg-gray-50"
+                          >
+                            {/* Category label - click to show all */}
+                            <div
+                              className="w-44 text-sm font-medium text-gray-700 truncate cursor-pointer hover:text-purple-600"
+                              title={`${categoryLabels[category] || category} - Click to view all`}
+                              onClick={() => setSelectedFindingsCategory({ category, label: categoryLabels[category] || category, findings: [...counts.high, ...counts.medium, ...counts.low] })}
+                            >
+                              {categoryLabels[category] || category}
+                            </div>
+                            {/* Stacked bar - each segment clickable */}
+                            <div className="flex-1 flex items-center h-8 bg-gray-100 rounded overflow-hidden">
+                              {counts.high.length > 0 && (
+                                <div
+                                  className="h-full bg-red-500 flex items-center justify-center text-white text-xs font-medium cursor-pointer hover:bg-red-600 transition-colors"
+                                  style={{ width: `${highPct}%`, minWidth: counts.high.length > 0 ? '20px' : '0' }}
+                                  title={`High Risk: ${counts.high.length} - Click to view`}
+                                  onClick={() => setSelectedFindingsCategory({ category, label: `${categoryLabels[category] || category} - High Risk`, findings: counts.high })}
+                                >
+                                  {counts.high.length > 0 && counts.high.length}
+                                </div>
+                              )}
+                              {counts.medium.length > 0 && (
+                                <div
+                                  className="h-full bg-yellow-500 flex items-center justify-center text-white text-xs font-medium cursor-pointer hover:bg-yellow-600 transition-colors"
+                                  style={{ width: `${mediumPct}%`, minWidth: counts.medium.length > 0 ? '20px' : '0' }}
+                                  title={`Medium Risk: ${counts.medium.length} - Click to view`}
+                                  onClick={() => setSelectedFindingsCategory({ category, label: `${categoryLabels[category] || category} - Medium Risk`, findings: counts.medium })}
+                                >
+                                  {counts.medium.length > 0 && counts.medium.length}
+                                </div>
+                              )}
+                              {counts.low.length > 0 && (
+                                <div
+                                  className="h-full bg-yellow-300 flex items-center justify-center text-yellow-800 text-xs font-medium cursor-pointer hover:bg-yellow-400 transition-colors"
+                                  style={{ width: `${lowPct}%`, minWidth: counts.low.length > 0 ? '20px' : '0' }}
+                                  title={`Low Risk: ${counts.low.length} - Click to view`}
+                                  onClick={() => setSelectedFindingsCategory({ category, label: `${categoryLabels[category] || category} - Low Risk`, findings: counts.low })}
+                                >
+                                  {counts.low.length > 0 && counts.low.length}
+                                </div>
+                              )}
+                            </div>
+                            {/* Total count - click to show all */}
+                            <div
+                              className="w-8 text-sm text-gray-500 text-right cursor-pointer hover:text-purple-600"
+                              title="Click to view all"
+                              onClick={() => setSelectedFindingsCategory({ category, label: categoryLabels[category] || category, findings: [...counts.high, ...counts.medium, ...counts.low] })}
+                            >
+                              {total}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                );
+              })()}
+
+              {/* List view - Table style with filters */}
+              {findingsViewMode === 'list' && findings.all && findings.all.length > 0 && (() => {
+                const categoryLabels = {
+                  process: 'Business Process',
+                  pain_point: 'Current Challenges',
+                  integration: 'System Integration',
+                  compliance: 'Compliance & Audit',
+                  performance: 'Efficiency & Performance',
+                  workaround: 'Manual Workarounds',
+                  requirement: 'Business Requirements',
+                  other: 'General Observations'
+                };
+
+                // Get unique categories from findings
+                const categories = [...new Set(findings.all.map(f => f.finding_type || 'other'))];
+
+                return (
+                  <div className="space-y-3">
+                    {/* Filters */}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <select
+                        value={findingsFilterCategory || ''}
+                        onChange={(e) => setFindingsFilterCategory(e.target.value || null)}
+                        className="text-sm border border-gray-300 rounded px-2 py-1 bg-white"
+                      >
+                        <option value="">All Categories</option>
+                        {categories.map(cat => (
+                          <option key={cat} value={cat}>{categoryLabels[cat] || cat}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={findingsFilterRisk || ''}
+                        onChange={(e) => setFindingsFilterRisk(e.target.value || null)}
+                        className="text-sm border border-gray-300 rounded px-2 py-1 bg-white"
+                      >
+                        <option value="">All Risk Levels</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                      </select>
                     </div>
-                  );
-                }
 
-                return filteredFindings.map(finding => (
-                  <FindingCard key={finding.id} finding={finding} onShowImplications={setImplicationsFinding} />
-                ));
+                    {/* Table */}
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="text-left px-3 py-2 font-medium text-gray-700 w-44">Category</th>
+                            <th className="text-left px-3 py-2 font-medium text-gray-700 w-20">Risk</th>
+                            <th className="text-left px-3 py-2 font-medium text-gray-700">Finding</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {[...findings.all]
+                            .sort((a, b) => {
+                              const riskOrder = { high: 0, medium: 1, low: 2 };
+                              return (riskOrder[a.sap_risk_level] || 1) - (riskOrder[b.sap_risk_level] || 1);
+                            })
+                            .filter(f => !findingsFilterCategory || (f.finding_type || 'other') === findingsFilterCategory)
+                            .filter(f => !findingsFilterRisk || (f.sap_risk_level || 'medium') === findingsFilterRisk)
+                            .map((finding, idx) => {
+                              const risk = finding.sap_risk_level || 'medium';
+                              const category = finding.finding_type || 'other';
+                              const riskColors = {
+                                high: 'bg-red-500 text-white',
+                                medium: 'bg-yellow-500 text-white',
+                                low: 'bg-yellow-300 text-yellow-800'
+                              };
+
+                              return (
+                                <tr
+                                  key={finding.id || idx}
+                                  className="hover:bg-gray-50 cursor-pointer"
+                                  onClick={() => setImplicationsFinding(finding)}
+                                >
+                                  <td className="px-3 py-2 text-sm text-gray-700">{categoryLabels[category] || category}</td>
+                                  <td className="px-3 py-2">
+                                    <span className={`text-xs font-medium px-2 py-0.5 rounded ${riskColors[risk]}`}>
+                                      {risk.charAt(0).toUpperCase()}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-900">
+                                    <div className="font-medium">{finding.topic}</div>
+                                    {finding.details && <div className="text-gray-500 text-xs mt-0.5 line-clamp-1">{finding.details}</div>}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Tiles view - Card style grouped by category */}
+              {findingsViewMode === 'tiles' && findings.all && findings.all.length > 0 && (() => {
+                const categoryLabels = {
+                  process: 'Business Process',
+                  pain_point: 'Current Challenges',
+                  integration: 'System Integration',
+                  compliance: 'Compliance & Audit',
+                  performance: 'Efficiency & Performance',
+                  workaround: 'Manual Workarounds',
+                  requirement: 'Business Requirements',
+                  other: 'General Observations'
+                };
+                const riskBorderColors = {
+                  high: 'border-l-red-500',
+                  medium: 'border-l-yellow-500',
+                  low: 'border-l-yellow-300'
+                };
+                const riskBadgeColors = {
+                  high: 'bg-red-500 text-white',
+                  medium: 'bg-yellow-500 text-white',
+                  low: 'bg-yellow-300 text-yellow-800'
+                };
+
+                // Filter by risk if selected, then group by category
+                const filteredFindings = findingsFilterRisk
+                  ? findings.all.filter(f => (f.sap_risk_level || 'medium') === findingsFilterRisk)
+                  : findings.all;
+
+                const grouped = {};
+                filteredFindings.forEach(f => {
+                  const cat = f.finding_type || 'other';
+                  if (!grouped[cat]) grouped[cat] = [];
+                  grouped[cat].push(f);
+                });
+
+                return (
+                  <div className="space-y-6">
+                    {Object.entries(grouped)
+                      .sort((a, b) => b[1].length - a[1].length)
+                      .map(([category, catFindings]) => (
+                        <div key={category}>
+                          <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                            {categoryLabels[category] || category}
+                            <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                              {catFindings.length}
+                            </span>
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {[...catFindings]
+                              .sort((a, b) => {
+                                const riskOrder = { high: 0, medium: 1, low: 2 };
+                                return (riskOrder[a.sap_risk_level] || 1) - (riskOrder[b.sap_risk_level] || 1);
+                              })
+                              .map((finding, idx) => {
+                              const risk = finding.sap_risk_level || 'medium';
+                              return (
+                                <div
+                                  key={finding.id || idx}
+                                  className={`p-4 bg-white border border-gray-200 rounded-lg border-l-4 ${riskBorderColors[risk]} cursor-pointer hover:shadow-md transition-shadow`}
+                                  onClick={() => setImplicationsFinding(finding)}
+                                >
+                                  <div className="flex items-start justify-between gap-2 mb-2">
+                                    <span className={`text-xs font-bold px-2 py-1 rounded ${riskBadgeColors[risk]}`}>
+                                      {risk.toUpperCase()}
+                                    </span>
+                                  </div>
+                                  <h4 className="font-medium text-gray-900 mb-1">{finding.topic}</h4>
+                                  {finding.details && (
+                                    <p className="text-sm text-gray-600 line-clamp-2">{finding.details}</p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                );
               })()}
             </div>
           )}
@@ -1214,6 +1681,18 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
       {/* Implications Modal */}
       {implicationsFinding && (
         <ImplicationsModal finding={implicationsFinding} onClose={() => setImplicationsFinding(null)} />
+      )}
+
+      {/* Category Findings Modal */}
+      {selectedFindingsCategory && (
+        <CategoryFindingsModal
+          category={selectedFindingsCategory}
+          onClose={() => setSelectedFindingsCategory(null)}
+          onShowImplications={(finding) => {
+            setSelectedFindingsCategory(null);
+            setImplicationsFinding(finding);
+          }}
+        />
       )}
     </div>
   );
@@ -1772,6 +2251,125 @@ function ImplicationsModal({ finding, onClose }) {
               <p className="text-gray-700">{finding.sap_best_practice}</p>
             </div>
           )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end p-4 border-t bg-gray-50">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Category Findings Modal - shows findings list when a bar is clicked
+function CategoryFindingsModal({ category, onClose, onShowImplications }) {
+  const { label, findings } = category;
+
+  // Sort findings by risk level (high first)
+  const sortedFindings = [...findings].sort((a, b) => {
+    const riskOrder = { high: 0, medium: 1, low: 2 };
+    return (riskOrder[a.sap_risk_level] || 1) - (riskOrder[b.sap_risk_level] || 1);
+  });
+
+  const highCount = findings.filter(f => f.sap_risk_level === 'high').length;
+  const mediumCount = findings.filter(f => f.sap_risk_level === 'medium').length;
+  const lowCount = findings.filter(f => f.sap_risk_level === 'low').length;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b bg-gradient-to-r from-amber-50 to-orange-50">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">{label} Findings</h3>
+            <div className="flex items-center gap-4 mt-1 text-sm">
+              <span className="text-gray-600">Total: {findings.length}</span>
+              {highCount > 0 && (
+                <span className="flex items-center gap-1 text-red-600">
+                  <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                  {highCount} High
+                </span>
+              )}
+              {mediumCount > 0 && (
+                <span className="flex items-center gap-1 text-yellow-600">
+                  <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+                  {mediumCount} Medium
+                </span>
+              )}
+              {lowCount > 0 && (
+                <span className="flex items-center gap-1 text-yellow-600">
+                  <span className="w-2 h-2 bg-yellow-300 rounded-full"></span>
+                  {lowCount} Low
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-white/50"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-4 space-y-3">
+          {sortedFindings.map((finding, index) => {
+            const riskColors = {
+              high: 'border-l-red-500 bg-red-50',
+              medium: 'border-l-yellow-500 bg-yellow-50',
+              low: 'border-l-yellow-300 bg-yellow-50/50'
+            };
+            const riskBadgeColors = {
+              high: 'bg-red-100 text-red-700',
+              medium: 'bg-yellow-100 text-yellow-700',
+              low: 'bg-yellow-100 text-yellow-600'
+            };
+            const risk = finding.sap_risk_level || 'medium';
+
+            return (
+              <div
+                key={finding.id || index}
+                className={`p-4 rounded-lg border-l-4 ${riskColors[risk]} border border-gray-200`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-medium text-gray-900">{finding.topic}</h4>
+                      <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${riskBadgeColors[risk]}`}>
+                        {risk.toUpperCase()}
+                      </span>
+                    </div>
+                    {finding.details && (
+                      <p className="text-sm text-gray-600 line-clamp-2">{finding.details}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => onShowImplications(finding)}
+                    className="px-3 py-1.5 text-xs bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors whitespace-nowrap"
+                  >
+                    View Details
+                  </button>
+                </div>
+                {finding.sap_recommendation && (
+                  <div className="mt-2 pt-2 border-t border-gray-200">
+                    <p className="text-xs text-gray-500">
+                      <span className="font-medium text-green-700">Recommendation:</span> {finding.sap_recommendation}
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Footer */}

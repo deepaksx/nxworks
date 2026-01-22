@@ -84,6 +84,7 @@ function SharedChecklist() {
   const [findingsRiskTab, setFindingsRiskTab] = useState('all'); // 'all', 'high', 'medium', 'low'
   const [implicationsFinding, setImplicationsFinding] = useState(null); // Finding to show implications modal for
   const [retryingChunks, setRetryingChunks] = useState(false); // Retrying failed chunks
+  const [headerCollapsed, setHeaderCollapsed] = useState(false); // Collapsible header state
 
   // Heartbeat interval ref
   const heartbeatRef = useRef(null);
@@ -518,182 +519,354 @@ function SharedChecklist() {
 
       {/* Main content */}
       <div className="max-w-4xl mx-auto p-4 space-y-4">
-        {/* Progress card */}
-        <div className="bg-white rounded-lg shadow-sm border p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-sm text-gray-500">Checklist Progress</p>
-            </div>
-            <div className="flex items-center gap-3">
-              {/* Settings dropdown */}
-              <div className="relative" ref={settingsRef}>
-                <button
-                  onClick={() => setShowSettings(!showSettings)}
-                  disabled={isRecording}
-                  className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg disabled:opacity-50"
-                  title="Recording Settings"
-                >
-                  <Settings className="w-5 h-5" />
-                </button>
-                {showSettings && !isRecording && (
-                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50 p-4">
-                    <h4 className="text-sm font-medium text-gray-900 mb-3">Recording Settings</h4>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Chunk Duration
-                      </label>
-                      <select
-                        value={chunkDuration}
-                        onChange={(e) => setChunkDuration(Number(e.target.value))}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
-                      >
-                        {CHUNK_DURATION_OPTIONS.map(opt => (
-                          <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
+        {/* Hidden file input for document upload */}
+        <input
+          type="file"
+          ref={documentInputRef}
+          onChange={handleDocumentUpload}
+          accept=".pdf,.doc,.docx,.txt,.csv"
+          className="hidden"
+        />
+
+        {/* Collapsible Progress card */}
+        <div className="bg-white rounded-lg shadow-sm border">
+          {/* Collapsed Header Bar */}
+          {headerCollapsed ? (
+            <div className="px-3 py-2 flex items-center gap-3">
+              {/* Expand button */}
+              <button
+                onClick={() => setHeaderCollapsed(false)}
+                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                title="Expand header"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+
+              {/* Compact progress */}
+              <div className="flex items-center gap-2">
+                <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-green-400 to-green-600"
+                    style={{ width: `${stats.completionPercent}%` }}
+                  />
+                </div>
+                <span className="text-xs font-medium text-gray-600 whitespace-nowrap">
+                  {stats.completionPercent}%
+                </span>
               </div>
 
-              {/* Document upload button */}
-              <input
-                type="file"
-                ref={documentInputRef}
-                onChange={handleDocumentUpload}
-                accept=".pdf,.doc,.docx,.txt,.csv"
-                className="hidden"
-              />
-              <button
-                onClick={() => documentInputRef.current?.click()}
-                disabled={documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing'}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-blue-300 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50"
-                title="Upload Document (PDF, Word, TXT)"
-              >
-                {documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing' ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+              {/* Compact stats */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="flex items-center gap-1 text-red-600 whitespace-nowrap">
+                  <AlertTriangle className="w-3 h-3" />
+                  {stats.criticalMissing}
+                </span>
+                <span className="flex items-center gap-1 text-green-600 whitespace-nowrap">
+                  <CheckCircle className="w-3 h-3" />
+                  {stats.criticalObtained}
+                </span>
+                <span className="text-gray-300">|</span>
+                <span className="text-gray-600 whitespace-nowrap">
+                  {stats.obtained}/{stats.total}
+                </span>
+              </div>
+
+              {/* Spacer */}
+              <div className="flex-1" />
+
+              {/* Compact action buttons */}
+              <div className="flex items-center gap-1">
+                {/* Settings dropdown */}
+                <div className="relative" ref={settingsRef}>
+                  <button
+                    onClick={() => setShowSettings(!showSettings)}
+                    disabled={isRecording}
+                    className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50"
+                    title="Recording Settings"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </button>
+                  {showSettings && !isRecording && (
+                    <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50 p-4">
+                      <h4 className="text-sm font-medium text-gray-900 mb-3">Recording Settings</h4>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Chunk Duration
+                        </label>
+                        <select
+                          value={chunkDuration}
+                          onChange={(e) => setChunkDuration(Number(e.target.value))}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
+                        >
+                          {CHUNK_DURATION_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => documentInputRef.current?.click()}
+                  disabled={documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing'}
+                  className="p-1 text-blue-600 hover:bg-blue-50 rounded disabled:opacity-50"
+                  title="Upload Document"
+                >
+                  {documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FileUp className="w-4 h-4" />
+                  )}
+                </button>
+
+                <button
+                  onClick={loadChecklist}
+                  disabled={isRecording}
+                  className="p-1 text-gray-500 hover:bg-gray-100 rounded disabled:opacity-50"
+                  title="Refresh"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+
+                {/* Record button - always prominent */}
+                {!isRecording ? (
+                  <button
+                    onClick={startRecording}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs rounded-md hover:from-purple-700 hover:to-indigo-700"
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                    Record
+                  </button>
                 ) : (
-                  <FileUp className="w-4 h-4" />
+                  <button
+                    onClick={stopRecording}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-red-600 text-white text-xs rounded-md hover:bg-red-700 animate-pulse"
+                  >
+                    <Square className="w-3 h-3" />
+                    {formatTime(recordingTime)}
+                  </button>
                 )}
-                Document
-              </button>
-
-              <button
-                onClick={loadChecklist}
-                disabled={isRecording}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Refresh
-              </button>
-
-              {!isRecording ? (
-                <button
-                  onClick={startRecording}
-                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 shadow-md"
-                >
-                  <Mic className="w-4 h-4" />
-                  Record
-                </button>
-              ) : (
-                <button
-                  onClick={stopRecording}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 animate-pulse shadow-md"
-                >
-                  <Square className="w-4 h-4" />
-                  Stop ({formatTime(recordingTime)})
-                </button>
-              )}
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Expanded Progress Card - Original Design */
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  {/* Collapse button */}
+                  <button
+                    onClick={() => setHeaderCollapsed(true)}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                    title="Collapse header"
+                  >
+                    <ChevronUp className="w-5 h-5" />
+                  </button>
+                  <p className="text-sm text-gray-500">Checklist Progress</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {/* Settings dropdown */}
+                  <div className="relative" ref={settingsRef}>
+                    <button
+                      onClick={() => setShowSettings(!showSettings)}
+                      disabled={isRecording}
+                      className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+                      title="Recording Settings"
+                    >
+                      <Settings className="w-5 h-5" />
+                    </button>
+                    {showSettings && !isRecording && (
+                      <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50 p-4">
+                        <h4 className="text-sm font-medium text-gray-900 mb-3">Recording Settings</h4>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Chunk Duration
+                          </label>
+                          <select
+                            value={chunkDuration}
+                            onChange={(e) => setChunkDuration(Number(e.target.value))}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md"
+                          >
+                            {CHUNK_DURATION_OPTIONS.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-          {/* Progress bar */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-4 bg-gray-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-green-400 to-green-600 transition-all duration-500"
-                style={{ width: `${stats.completionPercent}%` }}
-              />
+                  {/* Document upload button */}
+                  <button
+                    onClick={() => documentInputRef.current?.click()}
+                    disabled={documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-blue-300 text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50"
+                    title="Upload Document (PDF, Word, TXT)"
+                  >
+                    {documentUploadStatus === 'uploading' || documentUploadStatus === 'analyzing' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <FileUp className="w-4 h-4" />
+                    )}
+                    Document
+                  </button>
+
+                  <button
+                    onClick={loadChecklist}
+                    disabled={isRecording}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Refresh
+                  </button>
+
+                  {!isRecording ? (
+                    <button
+                      onClick={startRecording}
+                      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 shadow-md"
+                    >
+                      <Mic className="w-4 h-4" />
+                      Record
+                    </button>
+                  ) : (
+                    <button
+                      onClick={stopRecording}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 animate-pulse shadow-md"
+                    >
+                      <Square className="w-4 h-4" />
+                      Stop ({formatTime(recordingTime)})
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-4 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-green-400 to-green-600 transition-all duration-500"
+                    style={{ width: `${stats.completionPercent}%` }}
+                  />
+                </div>
+                <span className="text-sm font-medium text-gray-700 min-w-[100px] text-right">
+                  {stats.obtained}/{stats.total} ({stats.completionPercent}%)
+                </span>
+              </div>
+
+              {/* Quick stats */}
+              <div className="flex items-center gap-4 mt-3 text-xs">
+                <span className="flex items-center gap-1 text-red-600">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {stats.criticalMissing} critical missing
+                </span>
+                <span className="flex items-center gap-1 text-green-600">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  {stats.criticalObtained} critical obtained
+                </span>
+              </div>
             </div>
-            <span className="text-sm font-medium text-gray-700 min-w-[100px] text-right">
-              {stats.obtained}/{stats.total} ({stats.completionPercent}%)
-            </span>
-          </div>
-
-          {/* Quick stats */}
-          <div className="flex items-center gap-4 mt-3 text-xs">
-            <span className="flex items-center gap-1 text-red-600">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              {stats.criticalMissing} critical missing
-            </span>
-            <span className="flex items-center gap-1 text-green-600">
-              <CheckCircle className="w-3.5 h-3.5" />
-              {stats.criticalObtained} critical obtained
-            </span>
-          </div>
+          )}
         </div>
 
-        {/* Recording status */}
+        {/* Recording status - Compact when header collapsed */}
         {isRecording && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-                <span className="font-medium text-red-800">Recording in Progress</span>
+          headerCollapsed ? (
+            /* Compact recording status bar */
+            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-3">
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+              <div className="flex items-center gap-2 text-xs text-red-700">
+                <Clock className="w-3 h-3" />
+                <span>{formatTime(recordingTime)}</span>
+                <span className="text-red-300">|</span>
+                <span>Chunk: {formatTime(currentChunkTime)}/{formatTime(chunkDurationSeconds)}</span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-red-700">
-                <Clock className="w-4 h-4" />
-                <span>Total: {formatTime(recordingTime)}</span>
-                <span className="text-red-400">|</span>
-                <span>Chunk: {formatTime(currentChunkTime)} / {formatTime(chunkDurationSeconds)}</span>
+              {/* Mini audio level */}
+              <div className="w-16 h-1.5 bg-red-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-red-500 transition-all duration-75"
+                  style={{ width: `${audioLevel}%` }}
+                />
               </div>
-            </div>
-
-            {/* Audio level */}
-            <div className="h-2 bg-red-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-red-500 transition-all duration-75"
-                style={{ width: `${audioLevel}%` }}
-              />
-            </div>
-
-            {/* Chunk status */}
-            <div className="mt-3 flex items-center gap-3 text-xs">
-              {chunkProcessingStatus.length > 0 ? (
-                <>
+              {/* Compact chunk status */}
+              {chunkProcessingStatus.length > 0 && (
+                <div className="flex items-center gap-2 text-xs">
                   <span className="text-gray-600">
-                    Chunks: {chunkProcessingStatus.filter(s => s.status === 'complete').length}/{chunkProcessingStatus.length}
+                    {chunkProcessingStatus.filter(s => s.status === 'complete').length}/{chunkProcessingStatus.length}
                   </span>
                   <span className="text-green-600 font-medium">
-                    +{chunkProcessingStatus.reduce((sum, s) => sum + (s.obtainedCount || 0), 0)} items
+                    +{chunkProcessingStatus.reduce((sum, s) => sum + (s.obtainedCount || 0), 0)}
                   </span>
                   {chunkProcessingStatus.some(s => s.status === 'uploading' || s.status === 'analyzing') && (
-                    <span className="flex items-center gap-1 text-blue-600">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Processing...
-                    </span>
+                    <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
                   )}
                   {chunkProcessingStatus.some(s => s.status === 'error') && (
-                    <>
-                      <span className="text-red-600">
-                        {chunkProcessingStatus.filter(s => s.status === 'error').length} failed
-                      </span>
-                      <button
-                        onClick={handleRetryFailedChunks}
-                        disabled={retryingChunks}
-                        className="flex items-center gap-1 px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-                      >
-                        {retryingChunks ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                        Retry Failed
-                      </button>
-                    </>
+                    <span className="text-red-600">{chunkProcessingStatus.filter(s => s.status === 'error').length} err</span>
                   )}
-                </>
-              ) : (
-                <span className="text-gray-500">Recording will be analyzed in chunks...</span>
+                </div>
               )}
             </div>
-          </div>
+          ) : (
+            /* Full recording status */
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                  <span className="font-medium text-red-800">Recording in Progress</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-red-700">
+                  <Clock className="w-4 h-4" />
+                  <span>Total: {formatTime(recordingTime)}</span>
+                  <span className="text-red-400">|</span>
+                  <span>Chunk: {formatTime(currentChunkTime)} / {formatTime(chunkDurationSeconds)}</span>
+                </div>
+              </div>
+
+              {/* Audio level */}
+              <div className="h-2 bg-red-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-red-500 transition-all duration-75"
+                  style={{ width: `${audioLevel}%` }}
+                />
+              </div>
+
+              {/* Chunk status */}
+              <div className="mt-3 flex items-center gap-3 text-xs">
+                {chunkProcessingStatus.length > 0 ? (
+                  <>
+                    <span className="text-gray-600">
+                      Chunks: {chunkProcessingStatus.filter(s => s.status === 'complete').length}/{chunkProcessingStatus.length}
+                    </span>
+                    <span className="text-green-600 font-medium">
+                      +{chunkProcessingStatus.reduce((sum, s) => sum + (s.obtainedCount || 0), 0)} items
+                    </span>
+                    {chunkProcessingStatus.some(s => s.status === 'uploading' || s.status === 'analyzing') && (
+                      <span className="flex items-center gap-1 text-blue-600">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Processing...
+                      </span>
+                    )}
+                    {chunkProcessingStatus.some(s => s.status === 'error') && (
+                      <>
+                        <span className="text-red-600">
+                          {chunkProcessingStatus.filter(s => s.status === 'error').length} failed
+                        </span>
+                        <button
+                          onClick={handleRetryFailedChunks}
+                          disabled={retryingChunks}
+                          className="flex items-center gap-1 px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {retryingChunks ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                          Retry Failed
+                        </button>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-gray-500">Recording will be analyzed in chunks...</span>
+                )}
+              </div>
+            </div>
+          )
         )}
 
         {/* Failed chunks retry bar - shows when not recording but has failed chunks */}
