@@ -41,6 +41,7 @@ export function useChunkedRecording({
   const isStoppedRef = useRef(false);
   const onChunkReadyRef = useRef(onChunkReady);
   const onAllChunksCompleteRef = useRef(onAllChunksComplete);
+  const lastAudioLevelUpdateRef = useRef(0); // Throttle audio level updates
 
   // Keep callback refs updated
   useEffect(() => {
@@ -73,10 +74,17 @@ export function useChunkedRecording({
 
       const updateAudioLevel = () => {
         if (!analyserRef.current) return;
-        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-        analyserRef.current.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-        setAudioLevel(Math.min(100, average * 1.5));
+
+        // Throttle updates to every 100ms to prevent excessive re-renders
+        const now = Date.now();
+        if (now - lastAudioLevelUpdateRef.current >= 100) {
+          const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+          analyserRef.current.getByteFrequencyData(dataArray);
+          const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+          setAudioLevel(Math.min(100, average * 1.5));
+          lastAudioLevelUpdateRef.current = now;
+        }
+
         animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
       };
       updateAudioLevel();
