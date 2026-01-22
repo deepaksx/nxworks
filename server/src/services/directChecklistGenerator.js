@@ -258,11 +258,26 @@ ${newTranscription}
 
 You have TWO tasks:
 
-## TASK 1: Identify Checklist Items Answered
-Analyze the transcription and identify which checklist items now have answers.
-- Only mark an item as "obtained" if SPECIFIC, CONCRETE information was provided
-- Extract the ACTUAL DATA mentioned, not just acknowledgment that it was discussed
-- If information is partial or unclear, still mark as obtained but note the limitation
+## TASK 1: Identify Checklist Items Answered (BE VERY STRICT)
+Analyze the transcription and identify which checklist items now have CONCRETE answers.
+
+**STRICT RULES - READ CAREFULLY:**
+- ONLY mark an item as "obtained" if SPECIFIC, CONCRETE DATA was provided
+- DO NOT mark as obtained if the topic was just mentioned, discussed, or asked about
+- DO NOT mark as obtained if someone said "we have that" or "yes" without providing actual details
+- DO NOT mark as obtained if it was a question being asked (that means we're seeking the info, not that we have it)
+
+**Examples of what IS obtained:**
+- "We have 5 distribution centers: Dubai, Abu Dhabi, Sharjah, Ajman, and RAK" = OBTAINED (specific data)
+- "Our payment terms are Net 30 for retailers and Net 60 for wholesalers" = OBTAINED (concrete values)
+- "The approval hierarchy is: under 10K auto-approve, 10K-50K manager, over 50K director" = OBTAINED (specific rules)
+
+**Examples of what is NOT obtained:**
+- "We discussed volume discount structures" = NOT obtained (just discussed, no data)
+- "They mentioned they have pricing tiers" = NOT obtained (no specific tiers given)
+- "What are your payment terms?" = NOT obtained (this is a question, not an answer)
+- "Yes, we handle that" = NOT obtained (no specifics)
+- "We'll need to get that information" = NOT obtained (pending, not provided)
 
 ## TASK 2: Capture Additional Findings (CRITICAL)
 Identify ANY topics, processes, pain points, or information discussed that are NOT covered by the checklist items above. These could be:
@@ -308,8 +323,11 @@ For EACH additional finding, provide SAP best practice analysis:
 \`\`\`
 
 IMPORTANT:
+- BE CONSERVATIVE with "obtained" - when in doubt, do NOT mark as obtained
+- Items that were just MENTIONED or ASKED ABOUT should NOT be marked obtained
+- Only use "high" confidence when you have exact quotes with specific data
 - Be thorough in capturing additional findings - the client may mention valuable information casually
-- If no additional findings, return an empty array
+- If no items have concrete answers, return an empty obtained_items array - that's fine!
 - Return ONLY valid JSON, no other text.`;
 
   const response = await anthropic.messages.create({
@@ -513,11 +531,23 @@ ${truncatedText}
 
 You have TWO tasks:
 
-## TASK 1: Identify Checklist Items Answered
-Analyze the document and identify which checklist items have answers based on the document content.
-- Only mark an item as "obtained" if SPECIFIC, CONCRETE information is found in the document
-- Extract the ACTUAL DATA from the document, not just acknowledgment that it exists
-- If information is partial or unclear, still mark as obtained but note the limitation
+## TASK 1: Identify Checklist Items Answered (BE VERY STRICT)
+Analyze the document and identify which checklist items have CONCRETE answers.
+
+**STRICT RULES:**
+- ONLY mark an item as "obtained" if SPECIFIC, CONCRETE DATA is found in the document
+- DO NOT mark as obtained if the topic is just mentioned without specific details
+- DO NOT mark as obtained if it's a placeholder or "TBD"
+
+**Examples of what IS obtained:**
+- A table showing "Payment Terms: Net 30 for Type A, Net 45 for Type B" = OBTAINED
+- "Company has 12 warehouses located in..." with list = OBTAINED
+- Specific pricing structure with actual values = OBTAINED
+
+**Examples of what is NOT obtained:**
+- "Pricing policy to be defined" = NOT obtained
+- Section header mentioning a topic but no content = NOT obtained
+- Generic statements without specific data = NOT obtained
 
 ## TASK 2: Capture Additional Findings (CRITICAL)
 Identify ANY topics, processes, data, or information in the document that are NOT covered by the checklist items above. These could be:
@@ -562,9 +592,10 @@ For EACH additional finding, provide SAP best practice analysis:
 \`\`\`
 
 IMPORTANT:
+- BE CONSERVATIVE with "obtained" - only mark if you find ACTUAL DATA, not just topic mentions
+- If no items have concrete answers, return an empty obtained_items array - that's fine!
 - Documents may contain valuable organizational data, process flows, or requirements
-- Be thorough in extracting all relevant information
-- If no additional findings, return an empty array
+- Be thorough in extracting all relevant information for additional findings
 - Return ONLY valid JSON, no other text.`;
 
   const response = await anthropic.messages.create({
