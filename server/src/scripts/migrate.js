@@ -262,6 +262,14 @@ const runMigrations = async () => {
     console.log('\nMigration 8: sessions.transcript_file_path column');
     await addColumnIfNotExists(client, 'sessions', 'transcript_file_path', 'VARCHAR(500)');
 
+    // ===========================================
+    // Migration 9: Add best_practice to session_checklist_items
+    // ===========================================
+    console.log('\nMigration 9: session_checklist_items.best_practice column');
+    if (await addColumnIfNotExists(client, 'session_checklist_items', 'best_practice', 'TEXT')) {
+      changesCount++;
+    }
+
     await client.query('COMMIT');
 
     console.log('\n========================================');
@@ -307,6 +315,9 @@ const runMigrations = async () => {
 
     const transcriptCol = await columnExists(client, 'sessions', 'transcript_file_path');
     console.log(`  - sessions.transcript_file_path: ${transcriptCol ? 'EXISTS' : 'MISSING'}`);
+
+    const bestPracticeCol = await columnExists(client, 'session_checklist_items', 'best_practice');
+    console.log(`  - session_checklist_items.best_practice: ${bestPracticeCol ? 'EXISTS' : 'MISSING'}`);
 
     console.log('\n');
 

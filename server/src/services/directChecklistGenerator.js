@@ -150,6 +150,11 @@ ${customInstructions ? `**Additional Instructions:**\n${customInstructions}` : '
 
 Generate 50-100 specific checklist items organized by category.
 
+For each item, also include industry best practice guidance that explains:
+- What the SAP/industry best practice is for this specific area
+- Why this information matters for the implementation
+- Common pitfalls to avoid
+
 **Output Format - JSON array:**
 \`\`\`json
 [
@@ -157,7 +162,8 @@ Generate 50-100 specific checklist items organized by category.
     "item_text": "Specific information item to gather (be detailed and specific)",
     "importance": "critical|important|nice-to-have",
     "category": "Category name",
-    "suggested_question": "A question to ask to obtain this information"
+    "suggested_question": "A question to ask to obtain this information",
+    "best_practice": "One paragraph describing SAP/industry best practice for this item, including why it matters and common pitfalls"
   }
 ]
 \`\`\`
@@ -197,7 +203,8 @@ Return ONLY valid JSON array, no other text.`;
     item_text: item.item_text,
     importance: item.importance || 'important',
     category: item.category || 'General',
-    suggested_question: item.suggested_question || ''
+    suggested_question: item.suggested_question || '',
+    best_practice: item.best_practice || ''
   }));
 }
 
@@ -465,15 +472,16 @@ async function saveChecklistItems(sessionId, items) {
   for (const item of items) {
     await db.query(`
       INSERT INTO session_checklist_items
-        (session_id, item_number, item_text, importance, category, suggested_question, status)
-      VALUES ($1, $2, $3, $4, $5, $6, 'missing')
+        (session_id, item_number, item_text, importance, category, suggested_question, best_practice, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'missing')
     `, [
       sessionId,
       item.item_number,
       item.item_text,
       item.importance,
       item.category,
-      item.suggested_question
+      item.suggested_question,
+      item.best_practice
     ]);
   }
 

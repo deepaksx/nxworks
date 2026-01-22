@@ -840,6 +840,8 @@ function SharedChecklist() {
 
 // Item card component
 function ItemCard({ item, type, importance }) {
+  const [showBestPractice, setShowBestPractice] = useState(false);
+
   const importanceColors = {
     critical: 'bg-red-50 border-red-200',
     important: 'bg-orange-50 border-orange-200',
@@ -852,7 +854,32 @@ function ItemCard({ item, type, importance }) {
         <div className="flex items-start gap-2">
           <CheckCircle className="w-4 h-4 text-green-600 mt-0.5" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-gray-900">{item.item_text}</p>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-medium text-gray-900">{item.item_text}</p>
+              {item.best_practice && (
+                <button
+                  onClick={() => setShowBestPractice(!showBestPractice)}
+                  className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full transition-colors shrink-0 ${
+                    showBestPractice
+                      ? 'bg-amber-200 text-amber-800'
+                      : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                  }`}
+                  title="View best practice"
+                >
+                  <Lightbulb className="w-3 h-3" />
+                  Best Practice
+                </button>
+              )}
+            </div>
+            {showBestPractice && item.best_practice && (
+              <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-amber-800 mb-1.5">
+                  <Lightbulb className="w-3.5 h-3.5" />
+                  Industry Best Practice
+                </div>
+                <p className="text-sm text-amber-900">{item.best_practice}</p>
+              </div>
+            )}
             {item.obtained_text && (
               <p className="text-sm text-gray-700 mt-1 bg-white rounded p-2 border border-green-100">
                 {item.obtained_text}
@@ -877,7 +904,23 @@ function ItemCard({ item, type, importance }) {
           importance === 'important' ? 'text-orange-500' : 'text-gray-400'
         }`} />
         <div className="flex-1">
-          <p className="text-sm font-medium text-gray-900">{item.item_text}</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-medium text-gray-900">{item.item_text}</p>
+            {item.best_practice && (
+              <button
+                onClick={() => setShowBestPractice(!showBestPractice)}
+                className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full transition-colors shrink-0 ${
+                  showBestPractice
+                    ? 'bg-amber-200 text-amber-800'
+                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                }`}
+                title="View best practice"
+              >
+                <Lightbulb className="w-3 h-3" />
+                Best Practice
+              </button>
+            )}
+          </div>
           {item.category && (
             <span className="inline-block mt-1 px-2 py-0.5 bg-white rounded text-xs text-gray-500">
               {item.category}
@@ -887,6 +930,15 @@ function ItemCard({ item, type, importance }) {
             <p className="text-xs text-gray-500 mt-2 italic">
               Ask: "{item.suggested_question}"
             </p>
+          )}
+          {showBestPractice && item.best_practice && (
+            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-amber-800 mb-1.5">
+                <Lightbulb className="w-3.5 h-3.5" />
+                Industry Best Practice
+              </div>
+              <p className="text-sm text-amber-900">{item.best_practice}</p>
+            </div>
           )}
         </div>
       </div>
