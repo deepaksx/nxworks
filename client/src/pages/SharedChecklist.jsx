@@ -81,6 +81,8 @@ function SharedChecklist() {
   const [documentUploadStatus, setDocumentUploadStatus] = useState(null);
   const [documentUploadMessage, setDocumentUploadMessage] = useState('');
   const [bestPracticeItem, setBestPracticeItem] = useState(null); // Item to show best practice modal for
+  const [findingsRiskTab, setFindingsRiskTab] = useState('all'); // 'all', 'high', 'medium', 'low'
+  const [implicationsFinding, setImplicationsFinding] = useState(null); // Finding to show implications modal for
 
   // Heartbeat interval ref
   const heartbeatRef = useRef(null);
@@ -801,36 +803,73 @@ function SharedChecklist() {
 
             {activeTab === 'findings' && (
               <div className="space-y-4">
-                {/* Findings stats */}
-                {findings.stats?.total > 0 && (
-                  <div className="flex items-center gap-4 text-xs mb-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                    <span className="flex items-center gap-1 text-red-600 font-medium">
-                      <AlertCircle className="w-3.5 h-3.5" />
-                      {findings.stats.highRisk} high risk
-                    </span>
-                    <span className="flex items-center gap-1 text-orange-600 font-medium">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      {findings.stats.mediumRisk} medium risk
-                    </span>
-                    <span className="flex items-center gap-1 text-green-600 font-medium">
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      {findings.stats.lowRisk} low risk
-                    </span>
-                  </div>
-                )}
+                {/* Risk level sub-tabs */}
+                <div className="flex border-b border-gray-200">
+                  <button
+                    onClick={() => setFindingsRiskTab('all')}
+                    className={`px-3 py-2 text-xs font-medium transition-colors ${
+                      findingsRiskTab === 'all'
+                        ? 'border-b-2 border-purple-500 text-purple-700'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    All ({findings.stats?.total || 0})
+                  </button>
+                  <button
+                    onClick={() => setFindingsRiskTab('high')}
+                    className={`px-3 py-2 text-xs font-medium transition-colors flex items-center gap-1 ${
+                      findingsRiskTab === 'high'
+                        ? 'border-b-2 border-red-500 text-red-700'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    High ({findings.stats?.highRisk || 0})
+                  </button>
+                  <button
+                    onClick={() => setFindingsRiskTab('medium')}
+                    className={`px-3 py-2 text-xs font-medium transition-colors flex items-center gap-1 ${
+                      findingsRiskTab === 'medium'
+                        ? 'border-b-2 border-yellow-500 text-yellow-700'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    Medium ({findings.stats?.mediumRisk || 0})
+                  </button>
+                  <button
+                    onClick={() => setFindingsRiskTab('low')}
+                    className={`px-3 py-2 text-xs font-medium transition-colors flex items-center gap-1 ${
+                      findingsRiskTab === 'low'
+                        ? 'border-b-2 border-blue-500 text-blue-700'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Low ({findings.stats?.lowRisk || 0})
+                  </button>
+                </div>
 
-                {/* Findings list */}
-                {findings.all?.map(finding => (
-                  <FindingCard key={finding.id} finding={finding} />
-                ))}
+                {/* Filtered findings list */}
+                {(() => {
+                  const filteredFindings = findingsRiskTab === 'all'
+                    ? findings.all
+                    : findings.all?.filter(f => f.sap_risk_level === findingsRiskTab);
 
-                {(!findings.all || findings.all.length === 0) && (
-                  <div className="text-center py-8 text-gray-500">
-                    <Lightbulb className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-                    <p>No additional findings yet.</p>
-                    <p className="text-xs mt-1">Findings are captured when discussing topics outside the checklist.</p>
-                  </div>
-                )}
+                  if (!filteredFindings || filteredFindings.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-gray-500">
+                        <Lightbulb className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                        <p>{findingsRiskTab === 'all' ? 'No additional findings yet.' : `No ${findingsRiskTab} risk findings.`}</p>
+                        <p className="text-xs mt-1">Findings are captured when discussing topics outside the checklist.</p>
+                      </div>
+                    );
+                  }
+
+                  return filteredFindings.map(finding => (
+                    <FindingCard key={finding.id} finding={finding} onShowImplications={setImplicationsFinding} />
+                  ));
+                })()}
               </div>
             )}
           </div>
@@ -839,6 +878,11 @@ function SharedChecklist() {
         {/* Best Practice Modal */}
         {bestPracticeItem && (
           <BestPracticeModal item={bestPracticeItem} onClose={() => setBestPracticeItem(null)} />
+        )}
+
+        {/* Implications Modal */}
+        {implicationsFinding && (
+          <ImplicationsModal finding={implicationsFinding} onClose={() => setImplicationsFinding(null)} />
         )}
       </div>
     </div>
@@ -926,7 +970,7 @@ function ItemCard({ item, type, importance, onShowBestPractice }) {
 }
 
 // Finding card component
-function FindingCard({ finding }) {
+function FindingCard({ finding, onShowImplications }) {
   const [expanded, setExpanded] = useState(false);
 
   const riskColors = {
@@ -959,13 +1003,23 @@ function FindingCard({ finding }) {
               <Lightbulb className="w-4 h-4 text-amber-500" />
               <h4 className="font-medium text-gray-900">{finding.topic}</h4>
             </div>
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               <span className={`px-2 py-0.5 rounded text-xs font-medium ${riskColors[finding.sap_risk_level] || riskColors.medium}`}>
                 {finding.sap_risk_level?.toUpperCase()} RISK
               </span>
               <span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
                 {typeLabels[finding.finding_type] || finding.finding_type}
               </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShowImplications(finding);
+                }}
+                className="px-2 py-0.5 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors flex items-center gap-1"
+              >
+                <AlertCircle className="w-3 h-3" />
+                Implications
+              </button>
             </div>
           </div>
           <button className="text-gray-400 hover:text-gray-600">
@@ -1100,6 +1154,183 @@ function BestPracticeModal({ item, onClose }) {
                 <h4 className="font-semibold text-purple-900">Key Success Factors</h4>
               </div>
               <p className="text-gray-700">{bestPractice.success_factors}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end p-4 border-t bg-gray-50">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Implications Modal Component
+function ImplicationsModal({ finding, onClose }) {
+  const risk = finding.sap_risk_level || 'medium';
+
+  const riskColors = {
+    high: 'from-red-50 to-red-100',
+    medium: 'from-yellow-50 to-orange-50',
+    low: 'from-blue-50 to-cyan-50'
+  };
+
+  const riskIconColors = {
+    high: 'bg-red-100 text-red-600',
+    medium: 'bg-yellow-100 text-yellow-600',
+    low: 'bg-blue-100 text-blue-600'
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className={`flex items-start justify-between p-5 border-b bg-gradient-to-r ${riskColors[risk]}`}>
+          <div className="flex items-start gap-3">
+            <div className={`p-2 rounded-lg ${riskIconColors[risk]}`}>
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Implications Analysis</h3>
+              <p className="text-sm text-gray-600 mt-1">{finding.topic}</p>
+              <span className={`inline-block mt-2 px-2 py-0.5 text-xs rounded-full font-medium ${
+                risk === 'high' ? 'bg-red-100 text-red-700' :
+                risk === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                'bg-blue-100 text-blue-700'
+              }`}>
+                {risk.charAt(0).toUpperCase() + risk.slice(1)} Risk
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-white/50"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-5 space-y-4">
+          {/* Finding Details */}
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center gap-2 mb-2">
+              <Lightbulb className="w-5 h-5 text-purple-600" />
+              <h4 className="font-semibold text-gray-900">Finding Details</h4>
+            </div>
+            <p className="text-gray-700">{finding.details}</p>
+          </div>
+
+          {/* SAP Analysis - Implications */}
+          {finding.sap_analysis && (
+            <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-5 h-5 text-purple-600" />
+                <h4 className="font-semibold text-purple-900">SAP Implementation Implications</h4>
+              </div>
+              <p className="text-gray-700">{finding.sap_analysis}</p>
+            </div>
+          )}
+
+          {/* Business Impact */}
+          <div className={`rounded-lg p-4 border ${
+            risk === 'high' ? 'bg-red-50 border-red-200' :
+            risk === 'medium' ? 'bg-yellow-50 border-yellow-200' :
+            'bg-blue-50 border-blue-200'
+          }`}>
+            <div className="flex items-center gap-2 mb-2">
+              <Shield className={`w-5 h-5 ${
+                risk === 'high' ? 'text-red-600' :
+                risk === 'medium' ? 'text-yellow-600' :
+                'text-blue-600'
+              }`} />
+              <h4 className={`font-semibold ${
+                risk === 'high' ? 'text-red-900' :
+                risk === 'medium' ? 'text-yellow-900' :
+                'text-blue-900'
+              }`}>Business Impact</h4>
+            </div>
+            <ul className="space-y-2 text-gray-700">
+              {risk === 'high' && (
+                <>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-500 mt-1">•</span>
+                    <span>Critical gap that may cause project delays or failures</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-500 mt-1">•</span>
+                    <span>Requires immediate attention and mitigation strategy</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-500 mt-1">•</span>
+                    <span>May require significant process redesign or additional scope</span>
+                  </li>
+                </>
+              )}
+              {risk === 'medium' && (
+                <>
+                  <li className="flex items-start gap-2">
+                    <span className="text-yellow-500 mt-1">•</span>
+                    <span>Moderate impact on implementation timeline or scope</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-yellow-500 mt-1">•</span>
+                    <span>Should be addressed during design phase</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-yellow-500 mt-1">•</span>
+                    <span>May require additional configuration or customization</span>
+                  </li>
+                </>
+              )}
+              {risk === 'low' && (
+                <>
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-500 mt-1">•</span>
+                    <span>Minor impact, can be addressed during implementation</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-500 mt-1">•</span>
+                    <span>Good to document for future reference</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-500 mt-1">•</span>
+                    <span>Standard SAP functionality may address this</span>
+                  </li>
+                </>
+              )}
+            </ul>
+          </div>
+
+          {/* SAP Recommendation */}
+          {finding.sap_recommendation && (
+            <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                <h4 className="font-semibold text-green-900">Recommended Action</h4>
+              </div>
+              <p className="text-gray-700">{finding.sap_recommendation}</p>
+            </div>
+          )}
+
+          {/* SAP Best Practice */}
+          {finding.sap_best_practice && (
+            <div className="bg-indigo-50 rounded-lg p-4 border border-indigo-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Target className="w-5 h-5 text-indigo-600" />
+                <h4 className="font-semibold text-indigo-900">SAP Best Practice</h4>
+              </div>
+              <p className="text-gray-700">{finding.sap_best_practice}</p>
             </div>
           )}
         </div>
