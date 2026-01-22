@@ -130,6 +130,28 @@ const extractKeyFromPath = (filePath) => {
   return url.pathname.slice(1); // Remove leading slash
 };
 
+// Get file from S3 as buffer
+const getFileFromS3 = async (key) => {
+  const client = getS3Client();
+  if (!client) {
+    throw new Error('S3 not configured');
+  }
+
+  const command = new GetObjectCommand({
+    Bucket: getBucketName(),
+    Key: key
+  });
+
+  const response = await client.send(command);
+
+  // Convert stream to buffer
+  const chunks = [];
+  for await (const chunk of response.Body) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+};
+
 module.exports = {
   isS3Configured,
   uploadToS3,
@@ -138,5 +160,6 @@ module.exports = {
   getS3Url,
   extractKeyFromPath,
   getS3Client,
-  getBucketName
+  getBucketName,
+  getFileFromS3
 };
