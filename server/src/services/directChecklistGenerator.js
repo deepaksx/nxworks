@@ -150,10 +150,11 @@ ${customInstructions ? `**Additional Instructions:**\n${customInstructions}` : '
 
 Generate 50-100 specific checklist items organized by category.
 
-For each item, also include industry best practice guidance that explains:
-- What the SAP/industry best practice is for this specific area
-- Why this information matters for the implementation
-- Common pitfalls to avoid
+For each item, also include industry best practice guidance as a JSON object with itemized points:
+- sap_recommendation: What SAP recommends for this area
+- why_important: Why this information matters for the implementation
+- common_pitfalls: Common mistakes to avoid
+- success_factors: Key factors for success
 
 **Output Format - JSON array:**
 \`\`\`json
@@ -163,7 +164,12 @@ For each item, also include industry best practice guidance that explains:
     "importance": "critical|important|nice-to-have",
     "category": "Category name",
     "suggested_question": "A question to ask to obtain this information",
-    "best_practice": "One paragraph describing SAP/industry best practice for this item, including why it matters and common pitfalls"
+    "best_practice": {
+      "sap_recommendation": "What SAP/industry recommends for this specific area",
+      "why_important": "Why this information is critical for the implementation",
+      "common_pitfalls": "Common mistakes or issues to avoid",
+      "success_factors": "Key factors that lead to successful implementation"
+    }
   }
 ]
 \`\`\`
@@ -197,15 +203,33 @@ Return ONLY valid JSON array, no other text.`;
   // Parse JSON
   const items = JSON.parse(rawContent);
 
-  // Add item numbers
-  return items.map((item, index) => ({
-    item_number: index + 1,
-    item_text: item.item_text,
-    importance: item.importance || 'important',
-    category: item.category || 'General',
-    suggested_question: item.suggested_question || '',
-    best_practice: item.best_practice || ''
-  }));
+  // Add item numbers and format best_practice as JSON string
+  return items.map((item, index) => {
+    // Handle best_practice - convert object to JSON string for storage
+    let bestPractice = '';
+    if (item.best_practice) {
+      if (typeof item.best_practice === 'object') {
+        bestPractice = JSON.stringify(item.best_practice);
+      } else {
+        // Legacy string format - convert to object
+        bestPractice = JSON.stringify({
+          sap_recommendation: item.best_practice,
+          why_important: '',
+          common_pitfalls: '',
+          success_factors: ''
+        });
+      }
+    }
+
+    return {
+      item_number: index + 1,
+      item_text: item.item_text,
+      importance: item.importance || 'important',
+      category: item.category || 'General',
+      suggested_question: item.suggested_question || '',
+      best_practice: bestPractice
+    };
+  });
 }
 
 /**

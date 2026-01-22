@@ -84,6 +84,7 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [transcriptContent, setTranscriptContent] = useState('');
   const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [bestPracticeItem, setBestPracticeItem] = useState(null); // Item to show best practice modal for
 
   // Close settings dropdown when clicking outside
   useEffect(() => {
@@ -760,7 +761,7 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
                   </h4>
                   <div className="space-y-2">
                     {missingGrouped.critical.map(item => (
-                      <MissingItemCard key={item.id} item={item} />
+                      <MissingItemCard key={item.id} item={item} onShowBestPractice={setBestPracticeItem} />
                     ))}
                   </div>
                 </div>
@@ -775,7 +776,7 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
                   </h4>
                   <div className="space-y-2">
                     {missingGrouped.important.map(item => (
-                      <MissingItemCard key={item.id} item={item} />
+                      <MissingItemCard key={item.id} item={item} onShowBestPractice={setBestPracticeItem} />
                     ))}
                   </div>
                 </div>
@@ -790,7 +791,7 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
                   </h4>
                   <div className="space-y-2">
                     {missingGrouped.niceToHave.map(item => (
-                      <MissingItemCard key={item.id} item={item} importance="nice-to-have" />
+                      <MissingItemCard key={item.id} item={item} importance="nice-to-have" onShowBestPractice={setBestPracticeItem} />
                     ))}
                   </div>
                 </div>
@@ -816,7 +817,7 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
                   </h4>
                   <div className="space-y-2">
                     {obtainedGrouped.critical.map(item => (
-                      <ObtainedItemCard key={item.id} item={item} sessionId={sessionId} onUpdate={loadChecklist} />
+                      <ObtainedItemCard key={item.id} item={item} sessionId={sessionId} onUpdate={loadChecklist} onShowBestPractice={setBestPracticeItem} />
                     ))}
                   </div>
                 </div>
@@ -831,7 +832,7 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
                   </h4>
                   <div className="space-y-2">
                     {obtainedGrouped.important.map(item => (
-                      <ObtainedItemCard key={item.id} item={item} sessionId={sessionId} onUpdate={loadChecklist} />
+                      <ObtainedItemCard key={item.id} item={item} sessionId={sessionId} onUpdate={loadChecklist} onShowBestPractice={setBestPracticeItem} />
                     ))}
                   </div>
                 </div>
@@ -846,7 +847,7 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
                   </h4>
                   <div className="space-y-2">
                     {obtainedGrouped.niceToHave.map(item => (
-                      <ObtainedItemCard key={item.id} item={item} sessionId={sessionId} onUpdate={loadChecklist} />
+                      <ObtainedItemCard key={item.id} item={item} sessionId={sessionId} onUpdate={loadChecklist} onShowBestPractice={setBestPracticeItem} />
                     ))}
                   </div>
                 </div>
@@ -1049,14 +1050,17 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
           </div>
         </div>
       )}
+
+      {/* Best Practice Modal */}
+      {bestPracticeItem && (
+        <BestPracticeModal item={bestPracticeItem} onClose={() => setBestPracticeItem(null)} />
+      )}
     </div>
   );
 }
 
 // Sub-components
-function MissingItemCard({ item, importance }) {
-  const [showBestPractice, setShowBestPractice] = useState(false);
-
+function MissingItemCard({ item, importance, onShowBestPractice }) {
   const importanceColors = {
     critical: 'bg-red-50 border-red-200',
     important: 'bg-orange-50 border-orange-200',
@@ -1077,12 +1081,8 @@ function MissingItemCard({ item, importance }) {
             <p className="text-sm font-medium text-gray-900">{item.item_text}</p>
             {item.best_practice && (
               <button
-                onClick={() => setShowBestPractice(!showBestPractice)}
-                className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full transition-colors shrink-0 ${
-                  showBestPractice
-                    ? 'bg-amber-200 text-amber-800'
-                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                }`}
+                onClick={() => onShowBestPractice(item)}
+                className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full transition-colors shrink-0 bg-amber-100 text-amber-700 hover:bg-amber-200"
                 title="View best practice"
               >
                 <Lightbulb className="w-3 h-3" />
@@ -1100,26 +1100,16 @@ function MissingItemCard({ item, importance }) {
               Ask: "{item.suggested_question}"
             </p>
           )}
-          {showBestPractice && item.best_practice && (
-            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-amber-800 mb-1.5">
-                <Lightbulb className="w-3.5 h-3.5" />
-                Industry Best Practice
-              </div>
-              <p className="text-sm text-amber-900">{item.best_practice}</p>
-            </div>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-function ObtainedItemCard({ item, sessionId, onUpdate }) {
+function ObtainedItemCard({ item, sessionId, onUpdate, onShowBestPractice }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(item.obtained_text || '');
   const [saving, setSaving] = useState(false);
-  const [showBestPractice, setShowBestPractice] = useState(false);
 
   const handleSave = async () => {
     if (!editText.trim()) return;
@@ -1149,12 +1139,8 @@ function ObtainedItemCard({ item, sessionId, onUpdate }) {
             <p className="text-sm font-medium text-gray-900">{item.item_text}</p>
             {item.best_practice && (
               <button
-                onClick={() => setShowBestPractice(!showBestPractice)}
-                className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full transition-colors shrink-0 ${
-                  showBestPractice
-                    ? 'bg-amber-200 text-amber-800'
-                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                }`}
+                onClick={() => onShowBestPractice(item)}
+                className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full transition-colors shrink-0 bg-amber-100 text-amber-700 hover:bg-amber-200"
                 title="View best practice"
               >
                 <Lightbulb className="w-3 h-3" />
@@ -1162,16 +1148,6 @@ function ObtainedItemCard({ item, sessionId, onUpdate }) {
               </button>
             )}
           </div>
-
-          {showBestPractice && item.best_practice && (
-            <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-amber-800 mb-1.5">
-                <Lightbulb className="w-3.5 h-3.5" />
-                Industry Best Practice
-              </div>
-              <p className="text-sm text-amber-900">{item.best_practice}</p>
-            </div>
-          )}
 
           {isEditing ? (
             <div className="mt-2">
@@ -1358,6 +1334,109 @@ function FindingCard({ finding }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Best Practice Modal Component
+function BestPracticeModal({ item, onClose }) {
+  // Parse best_practice JSON if it's a string
+  let bestPractice = null;
+  if (item.best_practice) {
+    try {
+      bestPractice = typeof item.best_practice === 'string'
+        ? JSON.parse(item.best_practice)
+        : item.best_practice;
+    } catch {
+      // If parsing fails, treat as legacy string format
+      bestPractice = { sap_recommendation: item.best_practice };
+    }
+  }
+
+  if (!bestPractice) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between p-5 border-b bg-gradient-to-r from-amber-50 to-orange-50">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-amber-100 rounded-lg">
+              <Lightbulb className="w-6 h-6 text-amber-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Industry Best Practice</h3>
+              <p className="text-sm text-gray-600 mt-1 line-clamp-2">{item.item_text}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-white/50"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-5 space-y-4">
+          {/* SAP Recommendation */}
+          {bestPractice.sap_recommendation && (
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Shield className="w-5 h-5 text-blue-600" />
+                <h4 className="font-semibold text-blue-900">SAP Recommendation</h4>
+              </div>
+              <p className="text-gray-700">{bestPractice.sap_recommendation}</p>
+            </div>
+          )}
+
+          {/* Why Important */}
+          {bestPractice.why_important && (
+            <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Target className="w-5 h-5 text-green-600" />
+                <h4 className="font-semibold text-green-900">Why This Matters</h4>
+              </div>
+              <p className="text-gray-700">{bestPractice.why_important}</p>
+            </div>
+          )}
+
+          {/* Common Pitfalls */}
+          {bestPractice.common_pitfalls && (
+            <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+                <h4 className="font-semibold text-red-900">Common Pitfalls to Avoid</h4>
+              </div>
+              <p className="text-gray-700">{bestPractice.common_pitfalls}</p>
+            </div>
+          )}
+
+          {/* Success Factors */}
+          {bestPractice.success_factors && (
+            <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle className="w-5 h-5 text-purple-600" />
+                <h4 className="font-semibold text-purple-900">Key Success Factors</h4>
+              </div>
+              <p className="text-gray-700">{bestPractice.success_factors}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end p-4 border-t bg-gray-50">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
