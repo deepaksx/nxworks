@@ -215,8 +215,18 @@ async function analyzeTranscriptionAgainstChecklist(sessionId, newTranscription)
 
   const missingItems = missingItemsResult.rows;
 
-  if (missingItems.length === 0) {
-    return { obtainedItems: [], remainingMissing: 0 };
+  // Get already obtained items (to check for contradictions)
+  const obtainedItemsResult = await db.query(`
+    SELECT id, item_number, item_text, obtained_text, obtained_confidence
+    FROM session_checklist_items
+    WHERE session_id = $1 AND status = 'obtained'
+    ORDER BY item_number
+  `, [sessionId]);
+
+  const obtainedItems = obtainedItemsResult.rows;
+
+  if (missingItems.length === 0 && obtainedItems.length === 0) {
+    return { obtainedItems: [], itemsToReset: [], remainingMissing: 0 };
   }
 
   // Get all previous transcriptions for context
@@ -248,7 +258,10 @@ async function analyzeTranscriptionAgainstChecklist(sessionId, newTranscription)
 **Industry Context:** ${session.industry_context || 'Not specified'}
 
 **Checklist Items Still Missing (need to find answers for these):**
-${missingItems.map(item => `[ID:${item.id}] ${item.item_text}`).join('\n')}
+${missingItems.length > 0 ? missingItems.map(item => `[ID:${item.id}] ${item.item_text}`).join('\n') : '(None)'}
+
+**Items Already Marked as Obtained (check for CONTRADICTIONS in new recording):**
+${obtainedItems.length > 0 ? obtainedItems.map(item => `[ID:${item.id}] ${item.item_text}\n   Previously recorded: "${item.obtained_text}"`).join('\n') : '(None)'}
 
 **Workshop Transcription (all recordings so far):**
 ${allTranscriptions}
@@ -279,7 +292,16 @@ Analyze the transcription and identify which checklist items now have CONCRETE a
 - "Yes, we handle that" = NOT obtained (no specifics)
 - "We'll need to get that information" = NOT obtained (pending, not provided)
 
-## TASK 2: Capture Additional Findings (CRITICAL)
+## TASK 2: Check for CONTRADICTIONS in Previously Obtained Items
+Review the "Items Already Marked as Obtained" above. If the NEW recording contains information that CONTRADICTS or CORRECTS what was previously recorded, flag those items to be reset to "missing".
+
+**Examples of contradictions:**
+- Previously: "5 warehouses" → New recording: "Actually we closed 2, so now 3 warehouses" = CONTRADICTION
+- Previously: "Payment terms Net 30" → New recording: "No wait, it's Net 45 for that segment" = CONTRADICTION
+- Previously: "Manual approval process" → New recording: "That's the old process, we changed it" = CONTRADICTION
+- Someone says "I was wrong about that earlier" or "Let me correct that" = CONTRADICTION
+
+## TASK 3: Capture Additional Findings
 Identify ANY topics, processes, pain points, or information discussed that are NOT covered by the checklist items above. These could be:
 - Business processes mentioned that weren't on the checklist
 - Pain points or challenges the client mentioned
@@ -306,6 +328,13 @@ For EACH additional finding, provide SAP best practice analysis:
       "source_quote": "Brief relevant quote from transcription"
     }
   ],
+  "items_to_reset": [
+    {
+      "item_id": 456,
+      "reason": "New recording contradicts previous info: [explain the contradiction]",
+      "contradiction_quote": "The quote from new recording that contradicts"
+    }
+  ],
   "additional_findings": [
     {
       "topic": "Brief topic title (e.g., 'Manual Excel reconciliation process')",
@@ -326,8 +355,10 @@ IMPORTANT:
 - BE CONSERVATIVE with "obtained" - when in doubt, do NOT mark as obtained
 - Items that were just MENTIONED or ASKED ABOUT should NOT be marked obtained
 - Only use "high" confidence when you have exact quotes with specific data
+- Check carefully for contradictions - if someone corrects earlier info, reset that item!
 - Be thorough in capturing additional findings - the client may mention valuable information casually
 - If no items have concrete answers, return an empty obtained_items array - that's fine!
+- If no contradictions found, return an empty items_to_reset array
 - Return ONLY valid JSON, no other text.`;
 
   const response = await anthropic.messages.create({
@@ -363,6 +394,7 @@ IMPORTANT:
       // Return empty result instead of crashing
       return {
         obtainedItems: [],
+        itemsToReset: [],
         additionalFindings: [],
         remainingMissing: missingItems.length
       };
@@ -371,8 +403,9 @@ IMPORTANT:
 
   return {
     obtainedItems: result.obtained_items || [],
+    itemsToReset: result.items_to_reset || [],
     additionalFindings: result.additional_findings || [],
-    remainingMissing: missingItems.length - (result.obtained_items?.length || 0)
+    remainingMissing: missingItems.length - (result.obtained_items?.length || 0) + (result.items_to_reset?.length || 0)
   };
 }
 

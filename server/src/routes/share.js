@@ -579,6 +579,24 @@ router.post('/share/:token/audio/:audioId/analyze', verifyShareToken, async (req
       await markItemsAsObtained(analysisResult.obtainedItems);
     }
 
+    // Reset items back to missing if contradictions found
+    let resetCount = 0;
+    if (analysisResult.itemsToReset && analysisResult.itemsToReset.length > 0) {
+      for (const item of analysisResult.itemsToReset) {
+        await db.query(`
+          UPDATE session_checklist_items
+          SET status = 'missing',
+              obtained_text = NULL,
+              obtained_confidence = NULL,
+              obtained_source = NULL,
+              obtained_at = NULL
+          WHERE id = $1 AND session_id = $2
+        `, [item.item_id, sessionId]);
+        resetCount++;
+      }
+      console.log(`Reset ${resetCount} items back to missing due to contradictions`);
+    }
+
     // Save additional findings if any
     if (analysisResult.additionalFindings && analysisResult.additionalFindings.length > 0) {
       await saveAdditionalFindings(sessionId, audioId, analysisResult.additionalFindings);
@@ -587,6 +605,7 @@ router.post('/share/:token/audio/:audioId/analyze', verifyShareToken, async (req
     res.json({
       transcription,
       obtainedCount: analysisResult.obtainedItems.length,
+      resetCount: resetCount,
       remainingMissing: analysisResult.remainingMissing,
       obtainedItems: analysisResult.obtainedItems,
       findingsCount: analysisResult.additionalFindings?.length || 0
