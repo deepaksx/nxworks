@@ -11,7 +11,11 @@ import {
   uploadSessionDocument,
   analyzeSessionDocument,
   getSessionDocuments,
-  deleteSessionDocument
+  deleteSessionDocument,
+  getSessionTranscript,
+  getTranscriptDownloadUrl,
+  regenerateTranscript,
+  reanalyzeSession
 } from '../services/sessionChecklistApi';
 import {
   Mic,
@@ -37,7 +41,10 @@ import {
   FileUp,
   FileText,
   File,
-  Trash2
+  Trash2,
+  RotateCcw,
+  FileDown,
+  Eye
 } from 'lucide-react';
 
 // Chunk duration options in seconds
@@ -72,6 +79,11 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
   const documentInputRef = useRef(null);
   const [documentUploadStatus, setDocumentUploadStatus] = useState(null); // null, 'uploading', 'analyzing', 'complete', 'error'
   const [documentUploadMessage, setDocumentUploadMessage] = useState('');
+  const [reanalyzeStatus, setReanalyzeStatus] = useState(null); // null, 'analyzing', 'complete', 'error'
+  const [reanalyzeResult, setReanalyzeResult] = useState(null);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [transcriptContent, setTranscriptContent] = useState('');
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
 
   // Close settings dropdown when clicking outside
   useEffect(() => {
@@ -186,6 +198,61 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
     } catch (error) {
       console.error('Error deleting document:', error);
       alert('Failed to delete document');
+    }
+  };
+
+  // Re-analyze all transcripts
+  const handleReanalyze = async () => {
+    if (reanalyzeStatus === 'analyzing') return;
+
+    setReanalyzeStatus('analyzing');
+    setReanalyzeResult(null);
+
+    try {
+      const response = await reanalyzeSession(sessionId);
+      setReanalyzeResult(response.data);
+      setReanalyzeStatus('complete');
+
+      // Reload checklist and findings to show updates
+      await loadChecklist();
+
+      // Clear status after delay
+      setTimeout(() => {
+        setReanalyzeStatus(null);
+      }, 10000);
+    } catch (error) {
+      console.error('Error re-analyzing:', error);
+      setReanalyzeStatus('error');
+      setReanalyzeResult({ error: error.response?.data?.error || error.message });
+      setTimeout(() => setReanalyzeStatus(null), 5000);
+    }
+  };
+
+  // View transcript
+  const handleViewTranscript = async () => {
+    setTranscriptLoading(true);
+    try {
+      const response = await getSessionTranscript(sessionId);
+      setTranscriptContent(response.data.content);
+      setShowTranscript(true);
+    } catch (error) {
+      console.error('Error loading transcript:', error);
+      alert(error.response?.data?.error || 'No transcript available yet');
+    } finally {
+      setTranscriptLoading(false);
+    }
+  };
+
+  // Regenerate transcript from recordings
+  const handleRegenerateTranscript = async () => {
+    if (!confirm('Regenerate transcript from saved recordings? This will rebuild the MD file.')) return;
+
+    try {
+      const response = await regenerateTranscript(sessionId);
+      alert(`Transcript regenerated! ${response.data.chunksIncluded} chunks included.`);
+    } catch (error) {
+      console.error('Error regenerating transcript:', error);
+      alert(error.response?.data?.error || 'Failed to regenerate transcript');
     }
   };
 
@@ -387,6 +454,25 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
               Document
             </button>
 
+            {/* Re-analyse button */}
+            <button
+              onClick={handleReanalyze}
+              disabled={isRecording || reanalyzeStatus === 'analyzing' || stats.obtained === 0}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg disabled:opacity-50 ${
+                reanalyzeStatus === 'complete' ? 'border-green-300 text-green-700 bg-green-50' :
+                reanalyzeStatus === 'error' ? 'border-red-300 text-red-700 bg-red-50' :
+                'border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100'
+              }`}
+              title="Re-analyze all transcripts with stricter criteria"
+            >
+              {reanalyzeStatus === 'analyzing' ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RotateCcw className="w-4 h-4" />
+              )}
+              Re-analyse
+            </button>
+
             <button
               onClick={loadChecklist}
               disabled={isRecording}
@@ -536,6 +622,69 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
             {documentUploadStatus !== 'uploading' && documentUploadStatus !== 'analyzing' && (
               <button
                 onClick={() => setDocumentUploadStatus(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Re-analyze status */}
+      {reanalyzeStatus && (
+        <div className={`rounded-lg p-4 border ${
+          reanalyzeStatus === 'error' ? 'bg-red-50 border-red-200' :
+          reanalyzeStatus === 'complete' ? 'bg-purple-50 border-purple-200' :
+          'bg-purple-50 border-purple-200'
+        }`}>
+          <div className="flex items-start gap-3">
+            {reanalyzeStatus === 'analyzing' && (
+              <Loader2 className="w-5 h-5 text-purple-600 animate-spin mt-0.5" />
+            )}
+            {reanalyzeStatus === 'complete' && (
+              <CheckCircle className="w-5 h-5 text-purple-600 mt-0.5" />
+            )}
+            {reanalyzeStatus === 'error' && (
+              <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+            )}
+            <div className="flex-1">
+              <p className={`text-sm font-medium ${
+                reanalyzeStatus === 'error' ? 'text-red-800' : 'text-purple-800'
+              }`}>
+                {reanalyzeStatus === 'analyzing' && 'Re-analyzing all transcripts...'}
+                {reanalyzeStatus === 'complete' && 'Re-analysis Complete'}
+                {reanalyzeStatus === 'error' && 'Re-analysis Failed'}
+              </p>
+              {reanalyzeStatus === 'complete' && reanalyzeResult && (
+                <div className="text-xs text-purple-600 mt-1 space-y-1">
+                  <p>Changes applied: {reanalyzeResult.changesApplied || 0}</p>
+                  <p>Items confirmed obtained: {reanalyzeResult.itemsObtained || 0}</p>
+                  {reanalyzeResult.itemsResetToMissing > 0 && (
+                    <p className="text-amber-600">Items reset to missing: {reanalyzeResult.itemsResetToMissing}</p>
+                  )}
+                  {reanalyzeResult.strayTopicsFound > 0 && (
+                    <p className="text-green-600">New findings discovered: {reanalyzeResult.strayTopicsFound}</p>
+                  )}
+                  {reanalyzeResult.summary?.key_concerns?.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-purple-200">
+                      <p className="font-medium text-purple-700">Key Concerns:</p>
+                      <ul className="list-disc list-inside text-purple-600">
+                        {reanalyzeResult.summary.key_concerns.slice(0, 3).map((concern, i) => (
+                          <li key={i}>{concern}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+              {reanalyzeStatus === 'error' && reanalyzeResult?.error && (
+                <p className="text-xs text-red-600">{reanalyzeResult.error}</p>
+              )}
+            </div>
+            {reanalyzeStatus !== 'analyzing' && (
+              <button
+                onClick={() => setReanalyzeStatus(null)}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-4 h-4" />
@@ -757,6 +906,45 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
 
           {activeTab === 'documents' && (
             <div className="space-y-3">
+              {/* Transcript MD File - Always shown at top */}
+              <div className="flex items-center gap-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                <div className="p-2 rounded-lg bg-indigo-100">
+                  <FileText className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-indigo-900">Session Transcript</p>
+                  <p className="text-xs text-indigo-600">
+                    Consolidated transcript of all audio recordings
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={handleViewTranscript}
+                    disabled={transcriptLoading}
+                    className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded"
+                    title="View transcript"
+                  >
+                    {transcriptLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                  <a
+                    href={getTranscriptDownloadUrl(sessionId)}
+                    download
+                    className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded"
+                    title="Download transcript MD"
+                  >
+                    <FileDown className="w-4 h-4" />
+                  </a>
+                  <button
+                    onClick={handleRegenerateTranscript}
+                    className="p-1.5 text-amber-600 hover:bg-amber-100 rounded"
+                    title="Regenerate transcript from recordings"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Uploaded Documents */}
               {documents.length > 0 ? (
                 documents.map(doc => (
                   <div key={doc.id} className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
@@ -809,11 +997,11 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
                   </div>
                 ))
               ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <FileText className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-                  <p className="font-medium">No documents uploaded</p>
-                  <p className="text-sm mt-1">
-                    Upload PDF, Word, or text files to extract information for the checklist.
+                <div className="text-center py-6 text-gray-500 border border-dashed border-gray-200 rounded-lg">
+                  <FileUp className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                  <p className="text-sm">No additional documents uploaded</p>
+                  <p className="text-xs mt-1">
+                    Upload PDF, Word, or text files to extract information.
                   </p>
                 </div>
               )}
@@ -821,6 +1009,46 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
           )}
         </div>
       </div>
+
+      {/* Transcript Modal */}
+      {showTranscript && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Session Transcript</h3>
+              <div className="flex items-center gap-2">
+                <a
+                  href={getTranscriptDownloadUrl(sessionId)}
+                  download
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  <FileDown className="w-4 h-4" />
+                  Download MD
+                </a>
+                <button
+                  onClick={handleRegenerateTranscript}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-amber-300 text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100"
+                  title="Regenerate transcript from saved recordings"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Regenerate
+                </button>
+                <button
+                  onClick={() => setShowTranscript(false)}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <pre className="whitespace-pre-wrap text-sm text-gray-700 font-mono bg-gray-50 p-4 rounded-lg">
+                {transcriptContent || 'No transcript available yet.'}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

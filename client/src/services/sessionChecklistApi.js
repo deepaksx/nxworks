@@ -69,4 +69,20 @@ export const getSessionDocuments = (sessionId) =>
 export const deleteSessionDocument = (sessionId, documentId) =>
   api.delete(`/session/${sessionId}/document/${documentId}`);
 
+// Get transcript content
+export const getSessionTranscript = (sessionId) =>
+  api.get(`/session/${sessionId}/transcript`);
+
+// Download transcript URL
+export const getTranscriptDownloadUrl = (sessionId) =>
+  `${API_BASE}/session/${sessionId}/transcript/download`;
+
+// Regenerate transcript from saved recordings
+export const regenerateTranscript = (sessionId) =>
+  api.post(`/session/${sessionId}/transcript/regenerate`);
+
+// Re-analyze all transcripts against checklist
+export const reanalyzeSession = (sessionId) =>
+  api.post(`/session/${sessionId}/reanalyze`);
+
 export default api;

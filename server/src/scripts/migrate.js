@@ -256,6 +256,12 @@ const runMigrations = async () => {
       console.log('  [SKIP] session_documents table already exists');
     }
 
+    // ===========================================
+    // Migration 8: Add transcript_file_path to sessions
+    // ===========================================
+    console.log('\nMigration 8: sessions.transcript_file_path column');
+    await addColumnIfNotExists(client, 'sessions', 'transcript_file_path', 'VARCHAR(500)');
+
     await client.query('COMMIT');
 
     console.log('\n========================================');
@@ -298,6 +304,9 @@ const runMigrations = async () => {
 
     const documentsTable = await tableExists(client, 'session_documents');
     console.log(`  - session_documents table: ${documentsTable ? 'EXISTS' : 'MISSING'}`);
+
+    const transcriptCol = await columnExists(client, 'sessions', 'transcript_file_path');
+    console.log(`  - sessions.transcript_file_path: ${transcriptCol ? 'EXISTS' : 'MISSING'}`);
 
     console.log('\n');
 

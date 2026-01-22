@@ -27,6 +27,7 @@ const {
   getSessionFindings,
   analyzeDocumentAgainstChecklist
 } = require('../services/directChecklistGenerator');
+const { appendTranscript } = require('../services/transcriptManager');
 
 // OpenAI for transcription
 const OpenAI = require('openai');
@@ -562,6 +563,14 @@ router.post('/share/:token/audio/:audioId/analyze', verifyShareToken, async (req
       'UPDATE session_recordings SET transcription = $1 WHERE id = $2',
       [transcription, audioId]
     );
+
+    // Append to consolidated transcript MD file
+    try {
+      await appendTranscript(sessionId, audio.chunk_index || 0, transcription);
+    } catch (transcriptError) {
+      console.error('Error appending to transcript file:', transcriptError);
+      // Don't fail the whole operation if transcript append fails
+    }
 
     // Analyze against checklist
     const analysisResult = await analyzeTranscriptionAgainstChecklist(sessionId, transcription);

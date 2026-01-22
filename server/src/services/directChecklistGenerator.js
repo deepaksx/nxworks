@@ -607,10 +607,271 @@ IMPORTANT:
   };
 }
 
+/**
+ * Re-analyze ALL transcripts against the checklist (comprehensive re-evaluation)
+ *
+ * This function:
+ * 1. Reviews ALL checklist items (missing AND obtained) with stricter criteria
+ * 2. Only marks items as obtained if CONCRETE DATA is found (not just mentions)
+ * 3. Detects stray/off-topic discussions and captures them as findings with full context
+ * 4. Updates all items based on the complete transcript context
+ */
+async function reanalyzeAllTranscripts(sessionId, allTranscriptsText) {
+  // Get ALL checklist items (both missing and obtained)
+  const allItemsResult = await db.query(`
+    SELECT id, item_number, item_text, importance, category, suggested_question, status, obtained_text
+    FROM session_checklist_items
+    WHERE session_id = $1
+    ORDER BY item_number
+  `, [sessionId]);
+
+  const allItems = allItemsResult.rows;
+
+  if (allItems.length === 0) {
+    return { error: 'No checklist items found', changes: 0 };
+  }
+
+  // Get session context
+  const sessionResult = await db.query(`
+    SELECT s.*, w.mission_statement, w.industry_context, w.name as workshop_name
+    FROM sessions s
+    JOIN workshops w ON s.workshop_id = w.id
+    WHERE s.id = $1
+  `, [sessionId]);
+  const session = sessionResult.rows[0];
+
+  // Truncate if too long
+  const maxLength = 80000;
+  const truncatedTranscripts = allTranscriptsText.length > maxLength
+    ? allTranscriptsText.substring(0, maxLength) + '\n\n[Transcripts truncated...]'
+    : allTranscriptsText;
+
+  const prompt = `You are a SENIOR SAP S/4HANA implementation consultant performing a COMPREHENSIVE RE-ANALYSIS of all workshop recordings.
+
+**CRITICAL INSTRUCTION: BE CONSERVATIVE**
+Only mark items as "obtained" if you find CONCRETE, SPECIFIC DATA - not just acknowledgments, promises, or vague mentions.
+
+**Workshop:** ${session.workshop_name}
+**Mission:** ${session.mission_statement || 'Not specified'}
+**Module:** ${session.module}
+**Industry Context:** ${session.industry_context || 'Not specified'}
+
+**ALL CHECKLIST ITEMS TO EVALUATE:**
+${allItems.map(item => `[ID:${item.id}] [Current: ${item.status}] ${item.item_text}`).join('\n')}
+
+**COMPLETE TRANSCRIPT OF ALL RECORDINGS:**
+${truncatedTranscripts}
+
+## YOUR TASKS:
+
+### TASK 1: RE-EVALUATE ALL CHECKLIST ITEMS
+For EACH item, determine if it should be "obtained" or "missing" based on the COMPLETE transcript.
+
+**STRICT CRITERIA FOR "OBTAINED":**
+- Must have SPECIFIC DATA (numbers, names, structures, values, decisions)
+- "We will provide that later" = NOT obtained
+- "Yes, we have that" without details = NOT obtained
+- "I think it's about X" = NOT obtained (too vague)
+- "Our process is: step 1, step 2, step 3" = OBTAINED (concrete)
+- "We have 5 plants: Dubai, Abu Dhabi..." = OBTAINED (specific data)
+- "The approval limit is 50,000 AED" = OBTAINED (concrete value)
+
+### TASK 2: DETECT STRAY TOPICS & OFF-TOPIC DISCUSSIONS (CRITICAL)
+Identify ANY discussion that went "off-script" or covered topics NOT on the checklist:
+- Side conversations about problems
+- Complaints or frustrations expressed
+- Workarounds mentioned casually
+- Historical context shared
+- Future plans mentioned
+- Concerns raised about change management
+- Political/organizational dynamics hinted at
+- Integration concerns with other systems
+- Performance issues mentioned
+- Any OTHER valuable information
+
+For EACH stray topic, provide THOROUGH analysis:
+- Full context of what was discussed
+- Why this matters for the SAP implementation
+- SAP best practice recommendation
+- Risk level and explanation
+
+### TASK 3: VERIFY PREVIOUSLY OBTAINED ITEMS
+Review items marked as "obtained" - if the evidence is weak or just an acknowledgment, recommend changing back to "missing".
+
+**Output Format - JSON:**
+\`\`\`json
+{
+  "items_to_obtain": [
+    {
+      "item_id": 123,
+      "obtained_text": "SPECIFIC concrete data extracted (be detailed!)",
+      "confidence": "high|medium",
+      "evidence_quote": "Direct quote proving concrete data"
+    }
+  ],
+  "items_to_reset_to_missing": [
+    {
+      "item_id": 456,
+      "reason": "Only had acknowledgment, no concrete data provided"
+    }
+  ],
+  "stray_topics": [
+    {
+      "topic": "Descriptive topic title",
+      "finding_type": "process|pain_point|integration|compliance|performance|workaround|requirement|organizational|political|future_plan|historical|concern|other",
+      "context": "Full context of when and how this came up in the discussion",
+      "details": "Complete details of what was discussed",
+      "speakers_involved": "If identifiable, who brought this up",
+      "source_quotes": ["Quote 1", "Quote 2"],
+      "why_important": "Why this matters for the SAP project",
+      "sap_analysis": "Detailed SAP perspective on this finding",
+      "sap_recommendation": "Specific actionable recommendation",
+      "sap_best_practice": "Relevant SAP standard or Fiori app",
+      "risk_level": "high|medium|low",
+      "risk_explanation": "What could go wrong if ignored",
+      "related_checklist_items": [item_ids if related to existing items]
+    }
+  ],
+  "summary": {
+    "total_obtained": number,
+    "total_missing": number,
+    "items_changed": number,
+    "stray_topics_found": number,
+    "key_concerns": ["List of main concerns identified"]
+  }
+}
+\`\`\`
+
+IMPORTANT:
+- Be THOROUGH - don't miss any stray discussions
+- Be CONSERVATIVE - only mark obtained with concrete evidence
+- Be DETAILED - extract full context, not just summaries
+- Return ONLY valid JSON.`;
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 8000,
+    messages: [{ role: 'user', content: prompt }]
+  });
+
+  let rawContent = response.content[0].text;
+  rawContent = rawContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+  let result;
+  try {
+    result = JSON.parse(rawContent);
+  } catch (parseError) {
+    console.error('Re-analysis JSON parse error:', parseError.message);
+    try {
+      const lastBrace = rawContent.lastIndexOf('}');
+      if (lastBrace > 0) {
+        rawContent = rawContent.substring(0, lastBrace + 1);
+      }
+      result = JSON.parse(rawContent);
+    } catch (retryError) {
+      console.error('Re-analysis retry parse failed:', retryError.message);
+      return { error: 'Failed to parse analysis result', changes: 0 };
+    }
+  }
+
+  // Apply changes
+  let changesCount = 0;
+
+  // 1. Mark new items as obtained
+  if (result.items_to_obtain && result.items_to_obtain.length > 0) {
+    for (const item of result.items_to_obtain) {
+      await db.query(`
+        UPDATE session_checklist_items
+        SET
+          status = 'obtained',
+          obtained_text = $1,
+          obtained_confidence = $2,
+          obtained_source = 'reanalysis',
+          obtained_at = CURRENT_TIMESTAMP
+        WHERE id = $3 AND session_id = $4
+      `, [
+        item.obtained_text,
+        item.confidence,
+        item.item_id,
+        sessionId
+      ]);
+      changesCount++;
+    }
+  }
+
+  // 2. Reset items back to missing if evidence was weak
+  if (result.items_to_reset_to_missing && result.items_to_reset_to_missing.length > 0) {
+    for (const item of result.items_to_reset_to_missing) {
+      await db.query(`
+        UPDATE session_checklist_items
+        SET
+          status = 'missing',
+          obtained_text = NULL,
+          obtained_confidence = NULL,
+          obtained_source = NULL,
+          obtained_at = NULL
+        WHERE id = $1 AND session_id = $2
+      `, [item.item_id, sessionId]);
+      changesCount++;
+    }
+  }
+
+  // 3. Save stray topics as additional findings
+  let savedFindings = [];
+  if (result.stray_topics && result.stray_topics.length > 0) {
+    for (const finding of result.stray_topics) {
+      const insertResult = await db.query(`
+        INSERT INTO session_additional_findings
+          (session_id, recording_id, finding_type, topic, details, sap_analysis,
+           sap_recommendation, sap_risk_level, sap_best_practice, source_quote)
+        VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *
+      `, [
+        sessionId,
+        finding.finding_type || 'other',
+        finding.topic,
+        `${finding.context || ''}\n\n${finding.details || ''}\n\nWhy Important: ${finding.why_important || ''}`,
+        finding.sap_analysis,
+        finding.sap_recommendation,
+        finding.risk_level || 'medium',
+        finding.sap_best_practice,
+        Array.isArray(finding.source_quotes) ? finding.source_quotes.join(' | ') : finding.source_quotes
+      ]);
+      savedFindings.push(insertResult.rows[0]);
+    }
+  }
+
+  // Get updated counts
+  const statsResult = await db.query(`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'obtained') as obtained_count,
+      COUNT(*) FILTER (WHERE status = 'missing') as missing_count
+    FROM session_checklist_items
+    WHERE session_id = $1
+  `, [sessionId]);
+
+  const stats = statsResult.rows[0];
+
+  return {
+    success: true,
+    changesApplied: changesCount,
+    itemsObtained: result.items_to_obtain?.length || 0,
+    itemsResetToMissing: result.items_to_reset_to_missing?.length || 0,
+    strayTopicsFound: savedFindings.length,
+    newFindings: savedFindings,
+    summary: result.summary,
+    currentStats: {
+      obtained: parseInt(stats.obtained_count),
+      missing: parseInt(stats.missing_count)
+    }
+  };
+}
+
 module.exports = {
   generateDirectChecklist,
   analyzeTranscriptionAgainstChecklist,
   analyzeDocumentAgainstChecklist,
+  reanalyzeAllTranscripts,
   saveChecklistItems,
   markItemsAsObtained,
   saveAdditionalFindings,

@@ -23,8 +23,15 @@ const {
   markItemsAsObtained,
   saveAdditionalFindings,
   getSessionFindings,
-  analyzeDocumentAgainstChecklist
+  analyzeDocumentAgainstChecklist,
+  reanalyzeAllTranscripts
 } = require('../services/directChecklistGenerator');
+const {
+  appendTranscript,
+  regenerateTranscript,
+  getTranscriptContent,
+  getAllTranscriptsText
+} = require('../services/transcriptManager');
 
 // OpenAI for transcription
 const OpenAI = require('openai');
@@ -283,6 +290,14 @@ router.post('/session/:sessionId/audio/:audioId/analyze', async (req, res) => {
       'UPDATE session_recordings SET transcription = $1 WHERE id = $2',
       [transcription, audioId]
     );
+
+    // Append to consolidated transcript MD file
+    try {
+      await appendTranscript(sessionId, audio.chunk_index || 0, transcription);
+    } catch (transcriptError) {
+      console.error('Error appending to transcript file:', transcriptError);
+      // Don't fail the whole operation if transcript append fails
+    }
 
     // Analyze against checklist
     const analysisResult = await analyzeTranscriptionAgainstChecklist(sessionId, transcription);
@@ -980,6 +995,96 @@ router.delete('/session/:sessionId/document/:documentId', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting document:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Get transcript content
+// ============================================
+router.get('/session/:sessionId/transcript', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const content = await getTranscriptContent(sessionId);
+
+    if (!content) {
+      return res.status(404).json({ error: 'No transcript found' });
+    }
+
+    res.json({ content });
+  } catch (error) {
+    console.error('Error getting transcript:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Download transcript as MD file
+// ============================================
+router.get('/session/:sessionId/transcript/download', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const content = await getTranscriptContent(sessionId);
+
+    if (!content) {
+      return res.status(404).json({ error: 'No transcript found' });
+    }
+
+    // Get session name for filename
+    const sessionResult = await db.query(
+      'SELECT name FROM sessions WHERE id = $1',
+      [sessionId]
+    );
+    const sessionName = sessionResult.rows[0]?.name || 'session';
+    const fileName = `${sessionName.replace(/[^a-z0-9]/gi, '-')}-transcript.md`;
+
+    res.setHeader('Content-Type', 'text/markdown');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(content);
+  } catch (error) {
+    console.error('Error downloading transcript:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Regenerate transcript from saved recordings
+// ============================================
+router.post('/session/:sessionId/transcript/regenerate', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const result = await regenerateTranscript(sessionId);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error regenerating transcript:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Re-analyze all transcripts against checklist
+// ============================================
+router.post('/session/:sessionId/reanalyze', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    // Get all transcripts combined
+    const allTranscripts = await getAllTranscriptsText(sessionId);
+
+    if (!allTranscripts || allTranscripts.trim().length === 0) {
+      return res.status(400).json({ error: 'No transcripts found to analyze' });
+    }
+
+    // Re-analyze using enhanced function
+    const result = await reanalyzeAllTranscripts(sessionId, allTranscripts);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error re-analyzing transcripts:', error);
     res.status(500).json({ error: error.message });
   }
 });
