@@ -87,6 +87,7 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
   const [bestPracticeItem, setBestPracticeItem] = useState(null); // Item to show best practice modal for
   const [findingsRiskTab, setFindingsRiskTab] = useState('all'); // 'all', 'high', 'medium', 'low'
   const [implicationsFinding, setImplicationsFinding] = useState(null); // Finding to show implications modal for
+  const [retryingChunks, setRetryingChunks] = useState(false); // Retrying failed chunks
 
   // Close settings dropdown when clicking outside
   useEffect(() => {
@@ -270,6 +271,8 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
       return newStatus;
     });
 
+    let audioId = null;
+
     try {
       // Step 1: Upload audio
       const formData = new FormData();
@@ -278,12 +281,12 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
       formData.append('chunk_index', chunkIndex);
 
       const uploadResponse = await uploadSessionAudio(sessionId, formData);
-      const audioId = uploadResponse.data.id;
+      audioId = uploadResponse.data.id;
 
       // Step 2: Transcribe and analyze
       setChunkProcessingStatus(prev => {
         const newStatus = [...prev];
-        newStatus[chunkIndex] = { status: 'analyzing', step: 2, message: 'Transcribing & analyzing...' };
+        newStatus[chunkIndex] = { status: 'analyzing', step: 2, message: 'Transcribing & analyzing...', audioId };
         return newStatus;
       });
 
@@ -296,7 +299,8 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
           status: 'complete',
           step: 3,
           message: `Done! ${analysisResponse.data.obtainedCount || 0} items obtained`,
-          obtainedCount: analysisResponse.data.obtainedCount || 0
+          obtainedCount: analysisResponse.data.obtainedCount || 0,
+          audioId
         };
         return newStatus;
       });
@@ -310,13 +314,79 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
         const newStatus = [...prev];
         newStatus[chunkIndex] = {
           status: 'error',
-          step: 0,
-          message: error.response?.data?.error || error.message
+          step: prev[chunkIndex]?.step || 0,
+          message: error.response?.data?.error || error.message,
+          audioId // Store audioId so we can retry analysis
         };
         return newStatus;
       });
     }
   }, [sessionId]);
+
+  // Retry failed chunks
+  const handleRetryFailedChunks = useCallback(async () => {
+    const failedWithAudioId = chunkProcessingStatus
+      .map((status, index) => ({ ...status, index }))
+      .filter(s => s.status === 'error' && s.audioId);
+
+    if (failedWithAudioId.length === 0) {
+      alert('No failed chunks with saved audio to retry. You may need to re-record.');
+      return;
+    }
+
+    setRetryingChunks(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const chunk of failedWithAudioId) {
+      try {
+        // Update status to retrying
+        setChunkProcessingStatus(prev => {
+          const newStatus = [...prev];
+          newStatus[chunk.index] = { ...newStatus[chunk.index], status: 'analyzing', message: 'Retrying analysis...' };
+          return newStatus;
+        });
+
+        const analysisResponse = await analyzeSessionAudio(sessionId, chunk.audioId);
+
+        // Success
+        setChunkProcessingStatus(prev => {
+          const newStatus = [...prev];
+          newStatus[chunk.index] = {
+            status: 'complete',
+            step: 3,
+            message: `Done! ${analysisResponse.data.obtainedCount || 0} items obtained`,
+            obtainedCount: analysisResponse.data.obtainedCount || 0,
+            audioId: chunk.audioId
+          };
+          return newStatus;
+        });
+        successCount++;
+      } catch (error) {
+        // Still failed
+        setChunkProcessingStatus(prev => {
+          const newStatus = [...prev];
+          newStatus[chunk.index] = {
+            status: 'error',
+            step: 2,
+            message: error.response?.data?.error || error.message,
+            audioId: chunk.audioId
+          };
+          return newStatus;
+        });
+        failCount++;
+      }
+    }
+
+    setRetryingChunks(false);
+    await loadChecklist();
+
+    if (successCount > 0) {
+      alert(`Retry complete! ${successCount} chunk(s) succeeded${failCount > 0 ? `, ${failCount} still failed` : ''}.`);
+    } else {
+      alert(`All retries failed. Please check your API credits and try again.`);
+    }
+  }, [chunkProcessingStatus, sessionId]);
 
   const handleAllChunksComplete = useCallback(async () => {
     console.log('All chunks complete, reloading checklist...');
@@ -571,14 +641,64 @@ function ChecklistModeView({ workshopId, sessionId, session }) {
                   </span>
                 )}
                 {chunkProcessingStatus.some(s => s.status === 'error') && (
-                  <span className="text-red-600" title={chunkProcessingStatus.filter(s => s.status === 'error').map(s => s.message).join(', ')}>
-                    {chunkProcessingStatus.filter(s => s.status === 'error').length} failed
-                  </span>
+                  <>
+                    <span className="text-red-600" title={chunkProcessingStatus.filter(s => s.status === 'error').map(s => s.message).join(', ')}>
+                      {chunkProcessingStatus.filter(s => s.status === 'error').length} failed
+                    </span>
+                    <button
+                      onClick={handleRetryFailedChunks}
+                      disabled={retryingChunks}
+                      className="flex items-center gap-1 px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {retryingChunks ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      Retry Failed
+                    </button>
+                  </>
                 )}
               </>
             ) : (
               <span className="text-gray-500">Recording will be analyzed in chunks...</span>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Failed chunks retry bar - shows when not recording but has failed chunks */}
+      {!isRecording && chunkProcessingStatus.some(s => s.status === 'error') && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600" />
+              <div>
+                <p className="text-sm font-medium text-red-800">
+                  {chunkProcessingStatus.filter(s => s.status === 'error').length} chunk(s) failed to analyze
+                </p>
+                <p className="text-xs text-red-600">
+                  {chunkProcessingStatus.filter(s => s.status === 'error' && s.audioId).length > 0
+                    ? 'Audio saved - click Retry to re-analyze'
+                    : 'Audio upload failed - may need to re-record'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {chunkProcessingStatus.filter(s => s.status === 'error' && s.audioId).length > 0 && (
+                <button
+                  onClick={handleRetryFailedChunks}
+                  disabled={retryingChunks}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50"
+                >
+                  {retryingChunks ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Retry Failed ({chunkProcessingStatus.filter(s => s.status === 'error' && s.audioId).length})
+                </button>
+              )}
+              <button
+                onClick={() => setChunkProcessingStatus([])}
+                className="p-1.5 text-red-400 hover:text-red-600 rounded"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
