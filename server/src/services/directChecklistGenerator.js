@@ -190,7 +190,7 @@ Return ONLY valid JSON array, no other text.`;
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 8000,
+    max_tokens: 16000,
     messages: [{ role: 'user', content: userPrompt }],
     system: systemPrompt
   });
@@ -200,8 +200,41 @@ Return ONLY valid JSON array, no other text.`;
   // Clean up JSON response
   rawContent = rawContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
-  // Parse JSON
-  const items = JSON.parse(rawContent);
+  // Parse JSON with repair logic for truncated responses
+  let items;
+  try {
+    items = JSON.parse(rawContent);
+  } catch (parseError) {
+    console.error('JSON parse error in generateDirectChecklist:', parseError.message);
+    console.error('Raw content length:', rawContent.length);
+
+    // Try to repair truncated JSON
+    try {
+      // Find the last complete object in the array
+      let repaired = rawContent;
+
+      // If it ends mid-string, try to close it
+      if (!repaired.endsWith(']')) {
+        // Find the last complete object by looking for },
+        const lastCompleteObj = repaired.lastIndexOf('},');
+        if (lastCompleteObj > 0) {
+          repaired = repaired.substring(0, lastCompleteObj + 1) + ']';
+        } else {
+          // Try to find last complete object ending with }
+          const lastBrace = repaired.lastIndexOf('}');
+          if (lastBrace > 0) {
+            repaired = repaired.substring(0, lastBrace + 1) + ']';
+          }
+        }
+      }
+
+      items = JSON.parse(repaired);
+      console.log(`Successfully repaired JSON - recovered ${items.length} items`);
+    } catch (retryError) {
+      console.error('JSON repair also failed:', retryError.message);
+      throw new Error(`Failed to parse checklist response: ${parseError.message}. The AI response may have been truncated.`);
+    }
+  }
 
   // Add item numbers and format best_practice as JSON string
   return items.map((item, index) => {
