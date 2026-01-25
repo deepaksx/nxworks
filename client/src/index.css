@@ -39,6 +39,22 @@ body {
   animation: pulse-recording 1.5s ease-in-out infinite;
 }
 
+/* Recording alert title pulsation */
+@keyframes alert-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.02);
+  }
+}
+
+.recording-alert-pulse {
+  animation: alert-pulse 1.5s ease-in-out infinite;
+}
+
 /* Header circuit animations */
 @keyframes scanLine {
   0% {
@@ -220,4 +236,1029 @@ body {
     transform: translateX(15px);
     opacity: 0;
   }
+}
+
+/* =============================================
+   FLUID RECORDING ORB ANIMATIONS
+   ============================================= */
+
+/* Main blob morphing animation - idle state */
+@keyframes blob-idle {
+  0%, 100% {
+    d: path("M75,20 C105,20 130,45 130,75 C130,105 105,130 75,130 C45,130 20,105 20,75 C20,45 45,20 75,20");
+  }
+  25% {
+    d: path("M75,22 C108,18 132,48 128,78 C124,108 102,128 72,130 C42,132 18,108 22,78 C26,48 42,22 75,22");
+  }
+  50% {
+    d: path("M78,20 C106,24 128,50 130,80 C132,110 108,132 78,128 C48,124 22,100 20,70 C18,40 50,16 78,20");
+  }
+  75% {
+    d: path("M72,22 C102,18 130,42 132,72 C134,102 112,128 82,130 C52,132 24,110 20,80 C16,50 42,26 72,22");
+  }
+}
+
+/* Main blob morphing animation - active/recording state */
+@keyframes blob-morph {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  20% {
+    transform: scale(1.05, 0.95) rotate(2deg);
+  }
+  40% {
+    transform: scale(0.95, 1.08) rotate(-2deg);
+  }
+  60% {
+    transform: scale(1.08, 0.92) rotate(3deg);
+  }
+  80% {
+    transform: scale(0.92, 1.05) rotate(-3deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.animate-blob-idle {
+  animation: blob-idle 8s ease-in-out infinite;
+}
+
+.animate-blob-morph {
+  animation: blob-morph 2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Orbiting circles for main blob */
+@keyframes orbit-fast {
+  0% {
+    transform: rotate(0deg) translateX(45px) rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg) translateX(45px) rotate(-360deg);
+  }
+}
+
+@keyframes orbit-medium {
+  0% {
+    transform: rotate(120deg) translateX(50px) rotate(-120deg);
+  }
+  100% {
+    transform: rotate(480deg) translateX(50px) rotate(-480deg);
+  }
+}
+
+@keyframes orbit-slow-reverse {
+  0% {
+    transform: rotate(240deg) translateX(55px) rotate(-240deg);
+  }
+  100% {
+    transform: rotate(-120deg) translateX(55px) rotate(120deg);
+  }
+}
+
+.animate-orbit-fast {
+  animation: orbit-fast 3s linear infinite;
+  transform-origin: 75px 75px;
+}
+
+.animate-orbit-medium {
+  animation: orbit-medium 5s linear infinite;
+  transform-origin: 75px 75px;
+}
+
+.animate-orbit-slow-reverse {
+  animation: orbit-slow-reverse 7s linear infinite;
+  transform-origin: 75px 75px;
+}
+
+/* Satellite orb animations */
+@keyframes orbit-1 {
+  0% {
+    transform: rotate(0deg) translateX(25px) rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg) translateX(25px) rotate(-360deg);
+  }
+}
+
+@keyframes orbit-2 {
+  0% {
+    transform: rotate(180deg) translateX(30px) rotate(-180deg);
+  }
+  100% {
+    transform: rotate(-180deg) translateX(30px) rotate(180deg);
+  }
+}
+
+.animate-orbit-1 {
+  animation: orbit-1 4s linear infinite;
+  transform-origin: 50px 50px;
+}
+
+.animate-orbit-2 {
+  animation: orbit-2 6s linear infinite;
+  transform-origin: 50px 50px;
+}
+
+/* Slow morphing for satellite blobs */
+@keyframes morph-slow {
+  0%, 100% {
+    rx: 35;
+    ry: 35;
+  }
+  25% {
+    rx: 38;
+    ry: 32;
+  }
+  50% {
+    rx: 33;
+    ry: 37;
+  }
+  75% {
+    rx: 36;
+    ry: 34;
+  }
+}
+
+.animate-morph-slow ellipse,
+.animate-morph-slow circle {
+  animation: morph-slow 6s ease-in-out infinite;
+}
+
+/* Floating animation for satellites */
+@keyframes float-slow {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 4s ease-in-out infinite;
+}
+
+/* Ping animation for new items */
+@keyframes ping-slow {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  75%, 100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+.animate-ping-slow {
+  animation: ping-slow 1s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+/* Floating background particles */
+@keyframes float-particle {
+  0%, 100% {
+    transform: translateY(0) translateX(0);
+    opacity: 0.2;
+  }
+  25% {
+    transform: translateY(-20px) translateX(10px);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-10px) translateX(-15px);
+    opacity: 0.3;
+  }
+  75% {
+    transform: translateY(-30px) translateX(5px);
+    opacity: 0.5;
+  }
+}
+
+.animate-float-particle {
+  animation: float-particle 8s ease-in-out infinite;
+}
+
+/* Dashed line animation */
+@keyframes dash {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -20;
+  }
+}
+
+.animate-dash {
+  animation: dash 1s linear infinite;
+}
+
+/* Water ripple effect */
+@keyframes ripple {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.animate-ripple {
+  animation: ripple 1.5s ease-out infinite;
+}
+
+/* Pulse glow for recording */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(239, 68, 68, 0.8);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Slow spin for line art circles */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 8s linear infinite;
+  transform-origin: center;
+}
+
+/* =============================================
+   LIVING FLUID LINE ART ANIMATIONS
+   ============================================= */
+
+/* Main blob idle - gentle breathing */
+@keyframes fluid-main-idle {
+  0%, 100% {
+    d: path("M100,28 C138,28 172,62 172,100 C172,138 138,172 100,172 C62,172 28,138 28,100 C28,62 62,28 100,28");
+  }
+  25% {
+    d: path("M100,30 C135,26 174,60 174,100 C174,140 135,174 100,170 C65,174 26,140 26,100 C26,60 65,26 100,30");
+  }
+  50% {
+    d: path("M100,26 C140,30 170,65 172,100 C170,135 140,170 100,174 C60,170 30,135 28,100 C30,65 60,30 100,26");
+  }
+  75% {
+    d: path("M100,32 C136,28 172,58 176,100 C172,142 136,172 100,168 C64,172 28,142 24,100 C28,58 64,28 100,32");
+  }
+}
+
+/* Main blob active - more energetic morphing */
+@keyframes fluid-main-active {
+  0%, 100% {
+    d: path("M100,25 C140,25 175,60 175,100 C175,140 140,175 100,175 C60,175 25,140 25,100 C25,60 60,25 100,25");
+  }
+  12.5% {
+    d: path("M100,22 C145,28 178,55 180,100 C178,145 145,172 100,178 C55,172 22,145 20,100 C22,55 55,28 100,22");
+  }
+  25% {
+    d: path("M100,28 C138,20 180,62 175,105 C180,145 138,180 100,172 C62,180 20,145 25,105 C20,62 62,20 100,28");
+  }
+  37.5% {
+    d: path("M100,20 C148,25 175,58 178,100 C175,148 148,175 100,180 C52,175 25,148 22,100 C25,52 52,25 100,20");
+  }
+  50% {
+    d: path("M100,30 C135,22 178,65 172,100 C178,135 135,178 100,170 C65,178 22,135 28,100 C22,65 65,22 100,30");
+  }
+  62.5% {
+    d: path("M100,22 C142,30 172,55 178,100 C172,145 142,170 100,178 C58,170 28,145 22,100 C28,55 58,30 100,22");
+  }
+  75% {
+    d: path("M100,28 C140,22 175,58 180,100 C175,142 140,178 100,172 C60,178 25,142 20,100 C25,58 60,22 100,28");
+  }
+  87.5% {
+    d: path("M100,24 C145,30 180,60 175,105 C180,140 145,175 100,176 C55,175 20,140 25,105 C20,60 55,30 100,24");
+  }
+}
+
+/* Middle blob animations */
+@keyframes fluid-mid-idle {
+  0%, 100% {
+    d: path("M100,40 C130,40 160,70 160,100 C160,130 130,160 100,160 C70,160 40,130 40,100 C40,70 70,40 100,40");
+  }
+  33% {
+    d: path("M100,42 C128,38 162,72 158,100 C162,128 128,162 100,158 C72,162 38,128 42,100 C38,72 72,38 100,42");
+  }
+  66% {
+    d: path("M100,38 C132,42 158,68 162,100 C158,132 132,158 100,162 C68,158 42,132 38,100 C42,68 68,42 100,38");
+  }
+}
+
+@keyframes fluid-mid-active {
+  0%, 100% {
+    d: path("M100,40 C130,40 160,70 160,100 C160,130 130,160 100,160 C70,160 40,130 40,100 C40,70 70,40 100,40");
+  }
+  20% {
+    d: path("M100,35 C135,42 165,68 162,105 C168,135 135,165 100,162 C65,168 32,135 38,105 C32,68 65,35 100,35");
+  }
+  40% {
+    d: path("M100,45 C128,35 162,72 158,95 C165,128 128,162 100,155 C72,165 35,128 42,95 C35,72 72,38 100,45");
+  }
+  60% {
+    d: path("M100,38 C135,45 158,65 165,100 C158,138 135,158 100,165 C65,158 42,138 35,100 C42,65 65,42 100,38");
+  }
+  80% {
+    d: path("M100,42 C130,35 165,72 160,100 C165,130 130,165 100,158 C70,165 35,130 40,100 C35,72 70,38 100,42");
+  }
+}
+
+/* Inner blob animations */
+@keyframes fluid-inner-idle {
+  0%, 100% {
+    d: path("M100,55 C120,55 145,80 145,100 C145,120 120,145 100,145 C80,145 55,120 55,100 C55,80 80,55 100,55");
+  }
+  50% {
+    d: path("M100,52 C122,58 148,78 145,102 C148,122 122,148 100,145 C78,148 52,122 55,102 C52,78 78,52 100,52");
+  }
+}
+
+@keyframes fluid-inner-active {
+  0%, 100% {
+    d: path("M100,55 C120,55 145,80 145,100 C145,120 120,145 100,145 C80,145 55,120 55,100 C55,80 80,55 100,55");
+  }
+  25% {
+    d: path("M100,50 C125,58 150,75 148,105 C150,125 125,150 100,148 C75,150 50,125 52,105 C50,75 75,50 100,50");
+  }
+  50% {
+    d: path("M100,58 C118,50 148,82 142,100 C148,118 118,148 100,142 C82,148 52,118 58,100 C52,82 82,52 100,58");
+  }
+  75% {
+    d: path("M100,52 C125,55 145,78 150,100 C145,125 125,145 100,150 C75,145 55,125 50,100 C55,78 75,52 100,52");
+  }
+}
+
+/* Satellite blob animations */
+@keyframes fluid-blob-idle {
+  0%, 100% {
+    d: path("M50,12 C73,12 88,27 88,50 C88,73 73,88 50,88 C27,88 12,73 12,50 C12,27 27,12 50,12");
+  }
+  33% {
+    d: path("M50,14 C71,10 90,29 86,50 C90,71 71,90 50,86 C29,90 10,71 14,50 C10,29 29,10 50,14");
+  }
+  66% {
+    d: path("M50,10 C75,14 86,27 90,50 C86,75 75,86 50,90 C25,86 14,75 10,50 C14,25 25,14 50,10");
+  }
+}
+
+@keyframes fluid-blob-active {
+  0%, 100% {
+    d: path("M50,10 C75,10 90,25 90,50 C90,75 75,90 50,90 C25,90 10,75 10,50 C10,25 25,10 50,10");
+  }
+  16% {
+    d: path("M50,8 C78,12 92,22 92,52 C92,78 78,92 50,92 C22,92 8,78 8,52 C8,22 22,8 50,8");
+  }
+  33% {
+    d: path("M50,12 C72,8 92,28 88,50 C92,72 72,92 50,88 C28,92 8,72 12,50 C8,28 28,8 50,12");
+  }
+  50% {
+    d: path("M50,8 C76,14 88,24 92,50 C88,76 76,88 50,92 C24,88 14,76 8,50 C14,24 24,14 50,8");
+  }
+  66% {
+    d: path("M50,14 C74,8 92,26 88,52 C92,74 74,92 50,88 C26,92 8,74 12,52 C8,26 26,8 50,14");
+  }
+  83% {
+    d: path("M50,10 C78,14 90,24 92,50 C90,78 78,90 50,92 C22,90 14,78 8,50 C14,22 22,10 50,10");
+  }
+}
+
+@keyframes fluid-blob-inner-idle {
+  0%, 100% {
+    d: path("M50,22 C67,22 78,33 78,50 C78,67 67,78 50,78 C33,78 22,67 22,50 C22,33 33,22 50,22");
+  }
+  50% {
+    d: path("M50,20 C68,24 80,32 78,52 C80,68 68,80 50,78 C32,80 20,68 22,52 C20,32 32,20 50,20");
+  }
+}
+
+@keyframes fluid-blob-inner-active {
+  0%, 100% {
+    d: path("M50,22 C67,22 78,33 78,50 C78,67 67,78 50,78 C33,78 22,67 22,50 C22,33 33,22 50,22");
+  }
+  25% {
+    d: path("M50,18 C70,24 82,30 80,52 C82,70 70,82 50,80 C30,82 18,70 20,52 C18,30 30,18 50,18");
+  }
+  50% {
+    d: path("M50,24 C65,18 80,35 76,50 C80,65 65,80 50,76 C35,80 20,65 24,50 C20,35 35,20 50,24");
+  }
+  75% {
+    d: path("M50,20 C68,26 76,32 82,50 C76,68 68,76 50,82 C32,76 26,68 18,50 C26,32 32,24 50,20");
+  }
+}
+
+/* Center dot gentle pulse */
+@keyframes fluid-center-idle {
+  0%, 100% {
+    r: 8;
+    opacity: 1;
+  }
+  50% {
+    r: 9;
+    opacity: 0.8;
+  }
+}
+
+/* Apply animations */
+.fluid-main-idle {
+  animation: fluid-main-idle 6s ease-in-out infinite;
+}
+
+.fluid-main-active {
+  animation: fluid-main-active 2s ease-in-out infinite;
+}
+
+.fluid-mid-idle {
+  animation: fluid-mid-idle 5s ease-in-out infinite;
+}
+
+.fluid-mid-active {
+  animation: fluid-mid-active 1.5s ease-in-out infinite;
+}
+
+.fluid-inner-idle {
+  animation: fluid-inner-idle 4s ease-in-out infinite;
+}
+
+.fluid-inner-active {
+  animation: fluid-inner-active 1.2s ease-in-out infinite;
+}
+
+.fluid-blob-idle {
+  animation: fluid-blob-idle 5s ease-in-out infinite;
+}
+
+.fluid-blob-active {
+  animation: fluid-blob-active 1.5s ease-in-out infinite;
+}
+
+.fluid-blob-inner-idle {
+  animation: fluid-blob-inner-idle 4s ease-in-out infinite;
+}
+
+.fluid-blob-inner-active {
+  animation: fluid-blob-inner-active 1.2s ease-in-out infinite;
+}
+
+.fluid-center-idle {
+  animation: fluid-center-idle 3s ease-in-out infinite;
+}
+
+.fluid-ring-bg {
+  animation: fluid-main-idle 8s ease-in-out infinite;
+}
+
+/* Sonar pulsating animations */
+@keyframes sonar-pulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+@keyframes sonar-base-idle {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.02);
+    opacity: 0.7;
+  }
+}
+
+@keyframes sonar-base-active {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.9;
+  }
+}
+
+.sonar-ring {
+  transform-origin: center;
+}
+
+.sonar-base-idle {
+  animation: sonar-base-idle 2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.sonar-base-active {
+  animation: sonar-base-active 0.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Recording indicator animations */
+@keyframes recording-border-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: inset 0 0 0 4px #ef4444;
+  }
+  50% {
+    opacity: 0.5;
+    box-shadow: inset 0 0 0 6px #ef4444;
+  }
+}
+
+@keyframes recording-glow-pulse {
+  0%, 100% {
+    opacity: 0.15;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(1.05);
+  }
+}
+
+.recording-border-pulse {
+  animation: recording-border-pulse 1.5s ease-in-out infinite;
+}
+
+.recording-glow {
+  animation: recording-glow-pulse 1s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* EXTREME ORGANIC AMOEBA ANIMATIONS */
+
+/* Idle amoeba - slow, dreamy morphing */
+@keyframes amoeba-idle-1 {
+  0% {
+    d: path("M100,5 C140,0 175,20 190,55 C205,90 195,140 165,175 C135,205 95,210 55,185 C20,160 0,115 10,70 C20,30 60,10 100,5");
+    transform: rotate(0deg) scale(1);
+  }
+  14% {
+    d: path("M105,8 C150,2 180,30 192,68 C204,106 188,148 158,178 C128,208 85,215 48,188 C12,162 -5,118 8,72 C22,28 60,14 105,8");
+    transform: rotate(3deg) scale(1.01);
+  }
+  28% {
+    d: path("M95,2 C138,-5 178,18 195,52 C212,88 200,142 168,175 C138,210 92,218 52,192 C15,168 -8,120 5,72 C18,25 52,8 95,2");
+    transform: rotate(-2deg) scale(0.99);
+  }
+  42% {
+    d: path("M102,10 C145,5 182,28 198,62 C210,98 198,145 165,180 C132,212 88,208 50,182 C12,155 -2,108 12,65 C28,22 58,15 102,10");
+    transform: rotate(5deg) scale(1.02);
+  }
+  57% {
+    d: path("M98,0 C142,-2 172,22 188,58 C208,95 202,148 172,182 C142,215 98,220 58,190 C18,162 2,112 15,68 C30,25 55,5 98,0");
+    transform: rotate(-4deg) scale(1);
+  }
+  71% {
+    d: path("M108,8 C148,0 178,25 192,60 C208,98 195,150 162,182 C130,215 90,212 52,185 C15,158 0,112 12,68 C25,25 68,15 108,8");
+    transform: rotate(2deg) scale(1.01);
+  }
+  85% {
+    d: path("M95,5 C135,0 170,22 188,58 C205,95 198,145 168,178 C138,210 95,215 55,188 C18,162 5,115 15,70 C28,28 55,10 95,5");
+    transform: rotate(-3deg) scale(0.99);
+  }
+  100% {
+    d: path("M100,5 C140,0 175,20 190,55 C205,90 195,140 165,175 C135,205 95,210 55,185 C20,160 0,115 10,70 C20,30 60,10 100,5");
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes amoeba-idle-2 {
+  0%, 100% {
+    d: path("M100,15 C135,12 168,35 180,65 C195,100 185,145 155,172 C125,200 80,205 48,178 C18,152 5,108 15,68 C28,30 65,18 100,15");
+    transform: rotate(0deg);
+  }
+  25% {
+    d: path("M105,18 C140,10 172,38 185,70 C200,105 188,148 155,178 C122,205 78,210 45,182 C12,155 2,110 15,68 C30,28 70,25 105,18");
+    transform: rotate(-4deg);
+  }
+  50% {
+    d: path("M95,12 C132,8 165,32 182,62 C198,95 190,142 160,172 C128,202 82,208 48,180 C15,152 0,108 12,65 C25,25 58,15 95,12");
+    transform: rotate(5deg);
+  }
+  75% {
+    d: path("M102,20 C138,15 170,40 182,72 C195,105 182,150 152,178 C120,205 78,202 48,175 C18,148 8,105 18,65 C30,28 65,22 102,20");
+    transform: rotate(-3deg);
+  }
+}
+
+@keyframes amoeba-idle-3 {
+  0%, 100% {
+    d: path("M100,28 C130,25 158,45 170,72 C185,102 175,138 150,162 C122,188 82,190 55,165 C28,140 18,105 28,72 C40,42 70,31 100,28");
+    transform: rotate(0deg) scale(1);
+  }
+  33% {
+    d: path("M105,32 C135,28 162,50 175,78 C190,108 178,142 152,168 C125,192 80,195 52,168 C25,142 15,108 28,75 C42,45 75,38 105,32");
+    transform: rotate(6deg) scale(1.02);
+  }
+  66% {
+    d: path("M95,25 C128,22 155,42 168,70 C182,100 172,138 148,162 C120,188 80,190 52,165 C25,140 18,102 30,70 C42,40 62,28 95,25");
+    transform: rotate(-5deg) scale(0.98);
+  }
+}
+
+@keyframes amoeba-idle-4 {
+  0%, 100% {
+    d: path("M100,42 C125,40 148,55 158,78 C170,105 160,135 140,155 C118,175 85,178 62,158 C40,138 32,108 42,80 C54,52 75,44 100,42");
+  }
+  50% {
+    d: path("M102,45 C128,42 152,58 162,82 C175,110 162,140 142,160 C120,180 82,182 60,160 C38,140 30,110 42,82 C55,55 78,48 102,45");
+  }
+}
+
+/* Recording amoeba - wild, energetic morphing */
+@keyframes amoeba-recording-1 {
+  0% {
+    d: path("M100,5 C140,0 175,20 190,55 C205,90 195,140 165,175 C135,205 95,210 55,185 C20,160 0,115 10,70 C20,30 60,10 100,5");
+    transform: rotate(0deg) scale(1);
+  }
+  10% {
+    d: path("M110,2 C155,-5 185,25 200,65 C215,105 200,155 165,188 C130,220 85,225 45,195 C5,165 -10,115 5,65 C20,18 65,8 110,2");
+    transform: rotate(5deg) scale(1.04);
+  }
+  20% {
+    d: path("M90,8 C135,0 175,30 195,68 C210,105 195,155 160,185 C125,215 80,218 42,188 C5,158 -5,110 10,62 C28,18 48,15 90,8");
+    transform: rotate(-6deg) scale(0.98);
+  }
+  30% {
+    d: path("M108,0 C152,-8 188,22 205,60 C218,100 205,152 170,185 C135,218 88,222 48,192 C8,162 -5,112 12,62 C30,15 65,5 108,0");
+    transform: rotate(8deg) scale(1.05);
+  }
+  40% {
+    d: path("M95,5 C140,2 180,28 198,65 C215,102 200,152 165,185 C130,215 82,220 45,190 C10,160 0,110 15,62 C32,18 52,8 95,5");
+    transform: rotate(-4deg) scale(1);
+  }
+  50% {
+    d: path("M105,8 C150,0 182,25 198,62 C212,100 198,150 165,182 C132,215 85,218 48,188 C12,160 -2,112 15,65 C32,20 62,15 105,8");
+    transform: rotate(6deg) scale(1.03);
+  }
+  60% {
+    d: path("M92,2 C138,-5 178,22 195,58 C212,95 200,148 168,180 C135,212 88,218 50,188 C12,158 2,108 18,60 C35,15 48,8 92,2");
+    transform: rotate(-7deg) scale(0.97);
+  }
+  70% {
+    d: path("M108,5 C152,0 185,28 200,65 C215,102 198,152 165,185 C132,218 85,220 48,190 C10,160 -2,110 15,62 C32,18 65,10 108,5");
+    transform: rotate(5deg) scale(1.04);
+  }
+  80% {
+    d: path("M95,0 C142,-5 180,22 198,60 C215,98 200,150 168,182 C135,215 88,218 50,188 C12,158 0,108 15,60 C32,15 50,5 95,0");
+    transform: rotate(-5deg) scale(1);
+  }
+  90% {
+    d: path("M105,5 C148,0 182,25 198,62 C212,100 198,150 165,182 C132,215 88,218 50,188 C12,160 -2,110 15,62 C32,18 62,10 105,5");
+    transform: rotate(4deg) scale(1.02);
+  }
+  100% {
+    d: path("M100,5 C140,0 175,20 190,55 C205,90 195,140 165,175 C135,205 95,210 55,185 C20,160 0,115 10,70 C20,30 60,10 100,5");
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes amoeba-recording-2 {
+  0%, 100% {
+    d: path("M100,15 C135,12 168,35 180,65 C195,100 185,145 155,172 C125,200 80,205 48,178 C18,152 5,108 15,68 C28,30 65,18 100,15");
+    transform: rotate(0deg);
+  }
+  25% {
+    d: path("M108,12 C142,8 175,38 190,72 C205,108 192,152 160,180 C128,208 78,212 45,182 C12,155 0,108 15,65 C32,25 72,18 108,12");
+    transform: rotate(-8deg);
+  }
+  50% {
+    d: path("M92,18 C130,12 165,40 180,75 C198,112 185,155 152,182 C118,210 75,212 42,182 C10,152 2,105 18,62 C35,22 55,22 92,18");
+    transform: rotate(7deg);
+  }
+  75% {
+    d: path("M105,10 C140,5 172,35 188,70 C205,108 192,152 158,180 C125,208 80,212 48,182 C15,155 5,108 18,65 C32,25 68,15 105,10");
+    transform: rotate(-5deg);
+  }
+}
+
+@keyframes amoeba-recording-3 {
+  0%, 100% {
+    d: path("M100,28 C130,25 158,45 170,72 C185,102 175,138 150,162 C122,188 82,190 55,165 C28,140 18,105 28,72 C40,42 70,31 100,28");
+    transform: rotate(0deg) scale(1);
+  }
+  33% {
+    d: path("M108,25 C138,20 165,48 178,78 C192,110 180,145 155,170 C128,195 80,198 52,170 C25,142 15,105 28,72 C42,40 78,30 108,25");
+    transform: rotate(10deg) scale(1.03);
+  }
+  66% {
+    d: path("M92,30 C125,25 155,48 168,78 C182,108 172,142 148,168 C120,195 78,195 52,168 C25,140 18,102 30,70 C45,40 62,35 92,30");
+    transform: rotate(-8deg) scale(0.97);
+  }
+}
+
+@keyframes amoeba-recording-4 {
+  0%, 100% {
+    d: path("M100,42 C125,40 148,55 158,78 C170,105 160,135 140,155 C118,175 85,178 62,158 C40,138 32,108 42,80 C54,52 75,44 100,42");
+    transform: rotate(0deg);
+  }
+  50% {
+    d: path("M105,45 C130,42 155,60 165,85 C178,112 165,142 145,162 C122,182 82,185 58,162 C35,140 28,110 40,82 C55,55 80,48 105,45");
+    transform: rotate(-6deg);
+  }
+}
+
+/* Pulsating amoeba waves */
+@keyframes amoeba-pulse-0 {
+  0% { transform: scale(0.8); opacity: 0.5; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+@keyframes amoeba-pulse-1 {
+  0% { transform: scale(0.85) rotate(5deg); opacity: 0.5; }
+  100% { transform: scale(1.45) rotate(-5deg); opacity: 0; }
+}
+
+@keyframes amoeba-pulse-2 {
+  0% { transform: scale(0.82) rotate(-3deg); opacity: 0.5; }
+  100% { transform: scale(1.52) rotate(8deg); opacity: 0; }
+}
+
+/* Floating nucleus particles */
+@keyframes nucleus-float-1 {
+  0%, 100% { transform: translate(0, 0); opacity: 0.15; }
+  25% { transform: translate(8px, -5px); opacity: 0.2; }
+  50% { transform: translate(5px, 8px); opacity: 0.12; }
+  75% { transform: translate(-5px, 3px); opacity: 0.18; }
+}
+
+@keyframes nucleus-float-2 {
+  0%, 100% { transform: translate(0, 0); opacity: 0.12; }
+  33% { transform: translate(-6px, 5px); opacity: 0.18; }
+  66% { transform: translate(4px, -8px); opacity: 0.1; }
+}
+
+@keyframes nucleus-float-3 {
+  0%, 100% { transform: translate(0, 0); opacity: 0.1; }
+  50% { transform: translate(10px, -3px); opacity: 0.15; }
+}
+
+@keyframes nucleus-float-4 {
+  0%, 100% { transform: translate(0, 0); opacity: 0.12; }
+  40% { transform: translate(-5px, -5px); opacity: 0.18; }
+  80% { transform: translate(8px, 5px); opacity: 0.1; }
+}
+
+/* Core pulse when recording */
+@keyframes core-pulse-1 {
+  0%, 100% { transform: scale(1); opacity: 0.08; }
+  50% { transform: scale(1.15); opacity: 0.12; }
+}
+
+@keyframes core-pulse-2 {
+  0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.05; }
+  33% { transform: scale(1.1) translate(3px, -2px); opacity: 0.08; }
+  66% { transform: scale(0.95) translate(-2px, 3px); opacity: 0.04; }
+}
+
+/* Apply amoeba animations */
+.amoeba-idle-1 { animation: amoeba-idle-1 12s ease-in-out infinite; transform-origin: center; }
+.amoeba-idle-2 { animation: amoeba-idle-2 10s ease-in-out infinite; transform-origin: center; }
+.amoeba-idle-3 { animation: amoeba-idle-3 8s ease-in-out infinite; transform-origin: center; }
+.amoeba-idle-4 { animation: amoeba-idle-4 6s ease-in-out infinite; transform-origin: center; }
+.amoeba-recording-1 { animation: amoeba-recording-1 2.5s ease-in-out infinite; transform-origin: center; }
+.amoeba-recording-2 { animation: amoeba-recording-2 2s ease-in-out infinite; transform-origin: center; }
+.amoeba-recording-3 { animation: amoeba-recording-3 1.5s ease-in-out infinite; transform-origin: center; }
+.amoeba-recording-4 { animation: amoeba-recording-4 1.2s ease-in-out infinite; transform-origin: center; }
+.amoeba-pulse-0 { animation: amoeba-pulse-0 3s ease-out infinite; transform-origin: center; }
+.amoeba-pulse-1 { animation: amoeba-pulse-1 3.2s ease-out infinite; transform-origin: center; }
+.amoeba-pulse-2 { animation: amoeba-pulse-2 2.8s ease-out infinite; transform-origin: center; }
+.nucleus-float-1 { animation: nucleus-float-1 8s ease-in-out infinite; }
+.nucleus-float-2 { animation: nucleus-float-2 7s ease-in-out infinite; }
+.nucleus-float-3 { animation: nucleus-float-3 9s ease-in-out infinite; }
+.nucleus-float-4 { animation: nucleus-float-4 6s ease-in-out infinite; }
+.core-pulse-1 { animation: core-pulse-1 1.5s ease-in-out infinite; transform-origin: center; }
+.core-pulse-2 { animation: core-pulse-2 2s ease-in-out infinite; transform-origin: center; }
+
+/* OLD Organic blob animations - keeping for backwards compat */
+@keyframes organic-blob-idle {
+  0%, 100% {
+    d: path("M100,12 C145,12 175,40 182,75 C189,110 172,150 145,175 C118,200 82,200 55,175 C28,150 11,110 18,75 C25,40 55,12 100,12");
+    transform: rotate(0deg);
+  }
+  25% {
+    d: path("M100,15 C148,10 178,42 184,78 C190,114 170,152 142,178 C114,204 86,202 58,176 C30,150 8,112 16,76 C24,40 52,20 100,15");
+  }
+  50% {
+    d: path("M100,10 C142,14 172,38 180,72 C188,106 174,148 148,172 C122,196 78,198 52,174 C26,150 14,108 20,72 C26,36 58,10 100,10");
+    transform: rotate(2deg);
+  }
+  75% {
+    d: path("M100,14 C146,8 176,36 183,73 C190,110 175,150 147,176 C119,202 81,200 54,175 C27,150 10,111 17,74 C24,37 54,18 100,14");
+  }
+}
+
+@keyframes organic-blob-idle-2 {
+  0%, 100% {
+    d: path("M100,25 C138,28 162,52 168,82 C174,112 158,142 135,162 C112,182 88,182 65,162 C42,142 26,112 32,82 C38,52 62,28 100,25");
+  }
+  33% {
+    d: path("M100,28 C135,24 165,54 170,85 C175,116 156,144 132,165 C108,186 92,184 68,163 C44,142 28,114 34,83 C40,52 65,32 100,28");
+  }
+  66% {
+    d: path("M100,22 C140,26 160,50 166,80 C172,110 160,140 138,160 C116,180 84,180 62,160 C40,140 24,110 30,80 C36,50 60,26 100,22");
+  }
+}
+
+@keyframes organic-blob-idle-3 {
+  0%, 100% {
+    d: path("M100,38 C130,40 152,58 157,85 C162,112 148,138 128,155 C108,172 92,172 72,155 C52,138 38,112 43,85 C48,58 70,40 100,38");
+  }
+  50% {
+    d: path("M100,40 C128,38 154,60 158,87 C162,114 146,140 126,157 C106,174 94,173 74,156 C54,139 40,113 45,86 C50,59 72,42 100,40");
+  }
+}
+
+@keyframes organic-blob-recording {
+  0%, 100% {
+    d: path("M100,12 C145,12 175,40 182,75 C189,110 172,150 145,175 C118,200 82,200 55,175 C28,150 11,110 18,75 C25,40 55,12 100,12");
+    transform: scale(1) rotate(0deg);
+  }
+  12.5% {
+    d: path("M100,8 C150,14 180,44 186,80 C192,116 172,156 144,182 C116,208 84,206 56,180 C28,154 6,114 14,78 C22,42 50,10 100,8");
+    transform: scale(1.02) rotate(1deg);
+  }
+  25% {
+    d: path("M100,14 C142,10 174,38 182,72 C190,106 176,146 150,172 C124,198 76,200 50,174 C24,148 10,108 18,72 C26,36 58,16 100,14");
+    transform: scale(1.01) rotate(-1deg);
+  }
+  37.5% {
+    d: path("M100,10 C148,16 176,42 183,77 C190,112 170,152 143,178 C116,204 84,202 57,176 C30,150 12,110 19,75 C26,40 52,8 100,10");
+    transform: scale(1.03) rotate(2deg);
+  }
+  50% {
+    d: path("M100,16 C144,8 178,40 184,76 C190,112 168,154 140,180 C112,206 88,204 60,178 C32,152 14,112 20,76 C26,40 56,20 100,16");
+    transform: scale(1) rotate(0deg);
+  }
+  62.5% {
+    d: path("M100,12 C146,18 172,44 179,79 C186,114 172,150 146,175 C120,200 80,198 54,173 C28,148 10,112 17,77 C24,42 54,8 100,12");
+    transform: scale(1.02) rotate(-2deg);
+  }
+  75% {
+    d: path("M100,18 C140,12 176,38 183,73 C190,108 174,148 148,174 C122,200 78,202 52,176 C26,150 12,110 19,74 C26,38 60,22 100,18");
+    transform: scale(1.01) rotate(1deg);
+  }
+  87.5% {
+    d: path("M100,10 C148,14 174,42 181,77 C188,112 170,152 144,177 C118,202 82,200 56,175 C30,150 14,110 20,75 C26,40 52,12 100,10");
+    transform: scale(1.02) rotate(-1deg);
+  }
+}
+
+@keyframes organic-blob-recording-2 {
+  0%, 100% {
+    d: path("M100,25 C138,28 162,52 168,82 C174,112 158,142 135,162 C112,182 88,182 65,162 C42,142 26,112 32,82 C38,52 62,28 100,25");
+    transform: rotate(0deg);
+  }
+  50% {
+    d: path("M100,30 C134,24 166,54 172,86 C178,118 158,146 132,168 C106,190 94,188 68,166 C42,144 24,116 32,84 C40,52 66,34 100,30");
+    transform: rotate(-3deg);
+  }
+}
+
+@keyframes organic-blob-recording-3 {
+  0%, 100% {
+    d: path("M100,38 C130,40 152,58 157,85 C162,112 148,138 128,155 C108,172 92,172 72,155 C52,138 38,112 43,85 C48,58 70,40 100,38");
+  }
+  33% {
+    d: path("M100,42 C128,36 154,60 160,88 C166,116 150,142 128,160 C106,178 94,176 74,158 C54,140 38,114 44,86 C50,58 72,46 100,42");
+  }
+  66% {
+    d: path("M100,36 C132,42 150,56 156,84 C162,112 148,140 128,156 C108,172 92,170 72,154 C52,138 40,112 45,84 C50,56 68,38 100,36");
+  }
+}
+
+@keyframes organic-sonar-pulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+@keyframes organic-glow-pulse {
+  0%, 100% {
+    opacity: 0.06;
+    rx: 60;
+    ry: 58;
+  }
+  50% {
+    opacity: 0.1;
+    rx: 65;
+    ry: 62;
+  }
+}
+
+.organic-blob-idle {
+  animation: organic-blob-idle 8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.organic-blob-idle-2 {
+  animation: organic-blob-idle-2 6s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.organic-blob-idle-3 {
+  animation: organic-blob-idle-3 5s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.organic-blob-recording {
+  animation: organic-blob-recording 2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.organic-blob-recording-2 {
+  animation: organic-blob-recording-2 1.5s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.organic-blob-recording-3 {
+  animation: organic-blob-recording-3 1.2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.organic-sonar-ring {
+  transform-origin: center;
+}
+
+.organic-glow {
+  animation: organic-glow-pulse 1.5s ease-in-out infinite;
+}
+
+/* Multiple overlaid circles - idle animations */
+@keyframes fluid-idle-0 {
+  0%, 100% { d: path("M100,12 C153,12 188,47 188,100 C188,153 153,188 100,188 C47,188 12,153 12,100 C12,47 47,12 100,12"); }
+  50% { d: path("M100,15 C150,10 190,50 185,100 C190,150 150,190 100,185 C50,190 10,150 15,100 C10,50 50,10 100,15"); }
+}
+
+@keyframes fluid-idle-1 {
+  0%, 100% { d: path("M100,12 C153,12 188,47 188,100 C188,153 153,188 100,188 C47,188 12,153 12,100 C12,47 47,12 100,12"); }
+  50% { d: path("M100,10 C155,15 185,45 190,100 C185,155 155,185 100,190 C45,185 15,155 10,100 C15,45 45,15 100,10"); }
+}
+
+@keyframes fluid-idle-2 {
+  0%, 100% { d: path("M100,12 C153,12 188,47 188,100 C188,153 153,188 100,188 C47,188 12,153 12,100 C12,47 47,12 100,12"); }
+  50% { d: path("M100,8 C158,14 186,42 192,100 C186,158 158,186 100,192 C42,186 14,158 8,100 C14,42 42,14 100,8"); }
+}
+
+@keyframes fluid-idle-3 {
+  0%, 100% { d: path("M100,12 C153,12 188,47 188,100 C188,153 153,188 100,188 C47,188 12,153 12,100 C12,47 47,12 100,12"); }
+  50% { d: path("M100,16 C148,8 192,52 184,100 C192,148 148,192 100,184 C52,192 8,148 16,100 C8,52 52,8 100,16"); }
+}
+
+/* Multiple overlaid circles - active/recording animations (more energetic) */
+@keyframes fluid-audio-0 {
+  0%, 100% { d: path("M100,12 C153,12 188,47 188,100 C188,153 153,188 100,188 C47,188 12,153 12,100 C12,47 47,12 100,12"); }
+  25% { d: path("M100,5 C160,15 195,40 195,100 C195,160 160,185 100,195 C40,185 5,160 5,100 C5,40 40,15 100,5"); }
+  50% { d: path("M100,18 C145,5 195,55 182,100 C195,145 145,195 100,182 C55,195 5,145 18,100 C5,55 55,5 100,18"); }
+  75% { d: path("M100,8 C158,18 182,42 195,100 C182,158 158,182 100,195 C42,182 18,158 5,100 C18,42 42,18 100,8"); }
+}
+
+@keyframes fluid-audio-1 {
+  0%, 100% { d: path("M100,12 C153,12 188,47 188,100 C188,153 153,188 100,188 C47,188 12,153 12,100 C12,47 47,12 100,12"); }
+  20% { d: path("M100,8 C160,8 192,48 192,100 C192,160 160,192 100,192 C40,192 8,160 8,100 C8,40 40,8 100,8"); }
+  40% { d: path("M100,20 C145,8 195,55 180,105 C195,150 145,195 100,180 C55,195 5,150 20,105 C5,55 55,8 100,20"); }
+  60% { d: path("M100,5 C162,15 185,38 198,100 C185,162 162,185 100,198 C38,185 15,162 2,100 C15,38 38,15 100,5"); }
+  80% { d: path("M100,15 C150,5 190,50 185,95 C190,150 150,190 100,185 C50,190 10,150 15,95 C10,50 50,5 100,15"); }
+}
+
+@keyframes fluid-audio-2 {
+  0%, 100% { d: path("M100,12 C153,12 188,47 188,100 C188,153 153,188 100,188 C47,188 12,153 12,100 C12,47 47,12 100,12"); }
+  16% { d: path("M100,2 C165,12 198,45 195,105 C198,165 165,198 100,195 C35,198 2,165 5,105 C2,45 35,12 100,2"); }
+  33% { d: path("M100,22 C140,2 198,60 175,100 C198,140 140,198 100,175 C60,198 2,140 25,100 C2,60 60,2 100,22"); }
+  50% { d: path("M100,5 C162,18 182,38 200,100 C182,162 162,182 100,200 C38,182 18,162 0,100 C18,38 38,18 100,5"); }
+  66% { d: path("M100,18 C148,5 195,52 178,100 C195,148 148,195 100,178 C52,195 5,148 22,100 C5,52 52,5 100,18"); }
+  83% { d: path("M100,8 C158,20 180,42 198,100 C180,158 158,180 100,198 C42,180 20,158 2,100 C20,42 42,20 100,8"); }
+}
+
+@keyframes fluid-audio-3 {
+  0%, 100% { d: path("M100,12 C153,12 188,47 188,100 C188,153 153,188 100,188 C47,188 12,153 12,100 C12,47 47,12 100,12"); }
+  14% { d: path("M100,0 C168,10 200,42 198,108 C200,168 168,200 100,198 C32,200 0,168 2,108 C0,42 32,10 100,0"); }
+  28% { d: path("M100,25 C135,0 200,65 170,100 C200,135 135,200 100,170 C65,200 0,135 30,100 C0,65 65,0 100,25"); }
+  42% { d: path("M100,5 C165,20 180,35 202,100 C180,165 165,180 100,202 C35,180 20,165 -2,100 C20,35 35,20 100,5"); }
+  57% { d: path("M100,20 C145,0 200,55 175,105 C200,150 145,200 100,175 C55,200 0,150 25,105 C0,55 55,0 100,20"); }
+  71% { d: path("M100,8 C160,22 178,40 200,100 C178,160 160,178 100,200 C40,178 22,160 0,100 C22,40 40,22 100,8"); }
+  85% { d: path("M100,15 C152,5 192,48 185,100 C192,152 152,192 100,185 C48,192 8,152 15,100 C8,48 48,5 100,15"); }
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useChunkedRecording } from '../hooks/useChunkedRecording';
+import ImmersiveRecordingView from './ImmersiveRecordingView';
 import {
   getSessionChecklist,
   getSessionChecklistStats,
@@ -49,7 +50,8 @@ import {
   Users,
   BarChart3,
   List,
-  LayoutGrid
+  LayoutGrid,
+  Maximize2
 } from 'lucide-react';
 
 // Fixed chunk duration: 1 minute
@@ -87,6 +89,7 @@ function ChecklistModeView({ workshopId, sessionId, session, participants = [], 
   const [findingsViewMode, setFindingsViewMode] = useState('chart'); // 'chart' or 'list'
   const [findingsFilterCategory, setFindingsFilterCategory] = useState(null);
   const [findingsFilterRisk, setFindingsFilterRisk] = useState(null);
+  const [isImmersiveMode, setIsImmersiveMode] = useState(false); // Immersive recording mode
 
 
   // Load checklist on mount
@@ -433,6 +436,24 @@ function ChecklistModeView({ workshopId, sessionId, session, participants = [], 
   const missingGrouped = groupByImportance(checklist.missing);
   const obtainedGrouped = groupByImportance(checklist.obtained);
 
+  // Render immersive recording mode
+  if (isImmersiveMode) {
+    return (
+      <ImmersiveRecordingView
+        workshopId={workshopId}
+        sessionId={sessionId}
+        session={session}
+        participants={participants}
+        onShowParticipants={onShowParticipants}
+        onStatusChange={onStatusChange}
+        onExitImmersive={() => {
+          setIsImmersiveMode(false);
+          loadChecklist(); // Refresh data when exiting
+        }}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* Hidden file input for document upload */}
@@ -534,6 +555,16 @@ function ChecklistModeView({ workshopId, sessionId, session, participants = [], 
                 title="Refresh"
               >
                 <RefreshCw className="w-4 h-4" />
+              </button>
+
+              {/* Immersive mode button */}
+              <button
+                onClick={() => setIsImmersiveMode(true)}
+                disabled={isRecording}
+                className="p-1 text-purple-600 hover:bg-purple-50 rounded disabled:opacity-50"
+                title="Immersive recording mode"
+              >
+                <Maximize2 className="w-4 h-4" />
               </button>
 
               {/* Record button */}
@@ -720,6 +751,16 @@ function ChecklistModeView({ workshopId, sessionId, session, participants = [], 
                 >
                   <RefreshCw className="w-4 h-4" />
                   Refresh
+                </button>
+                {/* Immersive mode button */}
+                <button
+                  onClick={() => setIsImmersiveMode(true)}
+                  disabled={isRecording}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-purple-300 text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 disabled:opacity-50"
+                  title="Enter immersive recording mode"
+                >
+                  <Maximize2 className="w-4 h-4" />
+                  Immersive
                 </button>
                 {/* Record button */}
                 {!isRecording ? (
