@@ -1111,6 +1111,7 @@ router.post('/session/:sessionId/reanalyze', async (req, res) => {
 
 // ============================================
 // Generate combined transcript for entire workshop
+// (Backward compatible: supports both legacy audio_recordings and new session_recordings)
 // ============================================
 router.post('/workshop/:workshopId/generate-transcript', async (req, res) => {
   try {
@@ -1145,9 +1146,135 @@ router.post('/workshop/:workshopId/generate-transcript', async (req, res) => {
       totalRecordings: 0,
       transcribedRecordings: 0,
       newlyTranscribed: 0,
+      legacyRecordings: 0,
       errors: [],
       sessions: []
     };
+
+    // Helper function to resolve file path and download if needed
+    async function resolveAudioFilePath(filePath, fileName, recordingId, isLegacy = false) {
+      let resolvedPath = filePath;
+      let tempFile = null;
+
+      // Handle S3 URLs (legacy format - starts with http)
+      if (filePath.startsWith('http')) {
+        const https = require('https');
+        const http = require('http');
+
+        tempFile = path.join(process.env.NODE_ENV === 'production' ? '/tmp' : path.join(__dirname, '../../uploads/temp'), `transcribe_${recordingId}_${Date.now()}.webm`);
+
+        // Ensure temp directory exists
+        const tempDir = path.dirname(tempFile);
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        // Download from S3 URL
+        await new Promise((resolve, reject) => {
+          const protocol = filePath.startsWith('https') ? https : http;
+          const file = fs.createWriteStream(tempFile);
+          protocol.get(filePath, (response) => {
+            response.pipe(file);
+            file.on('finish', () => {
+              file.close();
+              resolve();
+            });
+          }).on('error', (err) => {
+            fs.unlink(tempFile, () => {});
+            reject(err);
+          });
+        });
+
+        return { path: tempFile, tempFile };
+      }
+
+      // Handle S3 key paths (new format - starts with uploads/)
+      if (filePath.startsWith('uploads/') && isS3Configured()) {
+        const { GetObjectCommand } = require('@aws-sdk/client-s3');
+        const { getS3Client, getBucketName } = require('../services/s3');
+
+        const s3Client = getS3Client();
+        const response = await s3Client.send(new GetObjectCommand({
+          Bucket: getBucketName(),
+          Key: filePath
+        }));
+
+        tempFile = path.join(process.env.NODE_ENV === 'production' ? '/tmp' : path.join(__dirname, '../../uploads/temp'), `transcribe_${recordingId}_${Date.now()}.webm`);
+
+        // Ensure temp directory exists
+        const tempDir = path.dirname(tempFile);
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        const writeStream = fs.createWriteStream(tempFile);
+        await new Promise((resolve, reject) => {
+          response.Body.pipe(writeStream);
+          response.Body.on('end', resolve);
+          response.Body.on('error', reject);
+        });
+
+        return { path: tempFile, tempFile };
+      }
+
+      // Handle local files
+      if (!path.isAbsolute(resolvedPath)) {
+        // Try different possible locations for backward compatibility
+        const possiblePaths = [
+          path.join(__dirname, '../..', resolvedPath),  // Standard relative path
+          path.join(__dirname, '../../uploads/audio', fileName),  // Legacy audio folder
+          path.join(__dirname, '../../uploads/session-audio', fileName),  // New session-audio folder
+          process.env.NODE_ENV === 'production' ? path.join('/tmp', resolvedPath) : null,
+          process.env.NODE_ENV === 'production' ? path.join('/tmp/uploads/audio', fileName) : null
+        ].filter(Boolean);
+
+        for (const tryPath of possiblePaths) {
+          if (fs.existsSync(tryPath)) {
+            resolvedPath = tryPath;
+            break;
+          }
+        }
+      }
+
+      return { path: resolvedPath, tempFile: null };
+    }
+
+    // Helper function to transcribe an audio file
+    async function transcribeAudio(recording, isLegacy = false) {
+      const { path: filePath, tempFile } = await resolveAudioFilePath(
+        recording.file_path,
+        recording.file_name,
+        recording.id,
+        isLegacy
+      );
+
+      // Verify file exists
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Audio file not found: ${recording.file_path} (tried: ${filePath})`);
+      }
+
+      const fileStats = fs.statSync(filePath);
+      if (fileStats.size === 0) {
+        throw new Error('Audio file is empty');
+      }
+
+      console.log(`Transcribing ${isLegacy ? 'legacy' : 'new'} recording ${recording.id}, file: ${filePath}`);
+
+      // Transcribe with OpenAI Whisper
+      const transcription = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(filePath),
+        model: 'whisper-1',
+        language: 'en',
+        response_format: 'text'
+      });
+
+      // Clean up temp file
+      if (tempFile && fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile);
+      }
+
+      return transcription;
+    }
 
     // Process each session
     for (const session of sessions) {
@@ -1156,82 +1283,33 @@ router.post('/workshop/:workshopId/generate-transcript', async (req, res) => {
         name: session.name,
         module: session.module,
         recordingsCount: 0,
+        legacyRecordingsCount: 0,
         transcribedCount: 0,
         newlyTranscribedCount: 0,
         errors: []
       };
 
-      // Get all recordings for this session
-      const recordingsResult = await db.query(
+      // ========================================
+      // 1. Get NEW session recordings (session_recordings table)
+      // ========================================
+      const newRecordingsResult = await db.query(
         'SELECT * FROM session_recordings WHERE session_id = $1 ORDER BY chunk_index, created_at',
         [session.id]
       );
 
-      sessionResult.recordingsCount = recordingsResult.rows.length;
-      results.totalRecordings += recordingsResult.rows.length;
+      sessionResult.recordingsCount += newRecordingsResult.rows.length;
+      results.totalRecordings += newRecordingsResult.rows.length;
 
-      // Process each recording
-      for (const recording of recordingsResult.rows) {
-        // Check if already transcribed
+      // Process new recordings
+      for (const recording of newRecordingsResult.rows) {
         if (recording.transcription) {
           sessionResult.transcribedCount++;
           results.transcribedRecordings++;
           continue;
         }
 
-        // Transcribe the audio
         try {
-          let filePath = recording.file_path;
-          let tempFile = null;
-
-          // Handle S3 files
-          if (filePath.startsWith('uploads/') && isS3Configured()) {
-            const { GetObjectCommand } = require('@aws-sdk/client-s3');
-            const { getS3Client, getBucketName } = require('../services/s3');
-
-            const s3Client = getS3Client();
-            const response = await s3Client.send(new GetObjectCommand({
-              Bucket: getBucketName(),
-              Key: filePath
-            }));
-
-            // Save to temp file
-            tempFile = path.join('/tmp', `transcribe_${recording.id}.webm`);
-            const writeStream = fs.createWriteStream(tempFile);
-            await new Promise((resolve, reject) => {
-              response.Body.pipe(writeStream);
-              response.Body.on('end', resolve);
-              response.Body.on('error', reject);
-            });
-            filePath = tempFile;
-          } else if (!path.isAbsolute(filePath)) {
-            filePath = path.join(__dirname, '../..', filePath);
-          }
-
-          // Verify file exists
-          if (!fs.existsSync(filePath)) {
-            throw new Error(`Audio file not found: ${recording.file_path}`);
-          }
-
-          const fileStats = fs.statSync(filePath);
-          if (fileStats.size === 0) {
-            throw new Error('Audio file is empty');
-          }
-
-          console.log(`Transcribing recording ${recording.id} for session ${session.name}`);
-
-          // Transcribe with OpenAI Whisper
-          const transcription = await openai.audio.transcriptions.create({
-            file: fs.createReadStream(filePath),
-            model: 'whisper-1',
-            language: 'en',
-            response_format: 'text'
-          });
-
-          // Clean up temp file
-          if (tempFile && fs.existsSync(tempFile)) {
-            fs.unlinkSync(tempFile);
-          }
+          const transcription = await transcribeAudio(recording, false);
 
           // Save transcription to database
           await db.query(
@@ -1252,15 +1330,73 @@ router.post('/workshop/:workshopId/generate-transcript', async (req, res) => {
           results.newlyTranscribed++;
 
         } catch (transcribeError) {
-          console.error(`Error transcribing recording ${recording.id}:`, transcribeError);
+          console.error(`Error transcribing new recording ${recording.id}:`, transcribeError);
           sessionResult.errors.push({
             recordingId: recording.id,
+            type: 'new',
             error: transcribeError.message
           });
           results.errors.push({
             sessionId: session.id,
             sessionName: session.name,
             recordingId: recording.id,
+            type: 'new',
+            error: transcribeError.message
+          });
+        }
+      }
+
+      // ========================================
+      // 2. Get LEGACY audio recordings (audio_recordings table via answers/questions)
+      // ========================================
+      const legacyRecordingsResult = await db.query(`
+        SELECT ar.*, q.question_text, a.text_response
+        FROM audio_recordings ar
+        JOIN answers a ON ar.answer_id = a.id
+        JOIN questions q ON a.question_id = q.id
+        WHERE q.session_id = $1
+        ORDER BY ar.created_at
+      `, [session.id]);
+
+      sessionResult.legacyRecordingsCount = legacyRecordingsResult.rows.length;
+      sessionResult.recordingsCount += legacyRecordingsResult.rows.length;
+      results.totalRecordings += legacyRecordingsResult.rows.length;
+      results.legacyRecordings += legacyRecordingsResult.rows.length;
+
+      // Process legacy recordings
+      for (const recording of legacyRecordingsResult.rows) {
+        if (recording.transcription) {
+          sessionResult.transcribedCount++;
+          results.transcribedRecordings++;
+          continue;
+        }
+
+        try {
+          const transcription = await transcribeAudio(recording, true);
+
+          // Save transcription to legacy table
+          await db.query(
+            'UPDATE audio_recordings SET transcription = $1 WHERE id = $2',
+            [transcription, recording.id]
+          );
+
+          sessionResult.transcribedCount++;
+          sessionResult.newlyTranscribedCount++;
+          results.transcribedRecordings++;
+          results.newlyTranscribed++;
+
+        } catch (transcribeError) {
+          console.error(`Error transcribing legacy recording ${recording.id}:`, transcribeError);
+          sessionResult.errors.push({
+            recordingId: recording.id,
+            type: 'legacy',
+            error: transcribeError.message
+          });
+          results.errors.push({
+            sessionId: session.id,
+            sessionName: session.name,
+            recordingId: recording.id,
+            type: 'legacy',
             error: transcribeError.message
           });
         }
@@ -1287,34 +1423,72 @@ ${workshop.mission_statement || 'Not specified'}
 
 `;
 
-    // Add each session's transcripts
+    // Add each session's transcripts (both new and legacy)
     for (const session of sessions) {
-      // Get all transcriptions for this session
-      const transcriptionsResult = await db.query(`
-        SELECT transcription, chunk_index, created_at
+      let sessionHasTranscripts = false;
+      let sessionTranscriptContent = '';
+
+      // Get NEW transcriptions for this session
+      const newTranscriptionsResult = await db.query(`
+        SELECT transcription, chunk_index, created_at, 'session_recording' as source_type
         FROM session_recordings
         WHERE session_id = $1 AND transcription IS NOT NULL
         ORDER BY chunk_index, created_at
       `, [session.id]);
 
-      if (transcriptionsResult.rows.length > 0) {
-        combinedTranscript += `
----
+      // Get LEGACY transcriptions for this session
+      const legacyTranscriptionsResult = await db.query(`
+        SELECT ar.transcription, ar.created_at, q.question_text, 'legacy_audio' as source_type
+        FROM audio_recordings ar
+        JOIN answers a ON ar.answer_id = a.id
+        JOIN questions q ON a.question_id = q.id
+        WHERE q.session_id = $1 AND ar.transcription IS NOT NULL
+        ORDER BY ar.created_at
+      `, [session.id]);
 
-## Session: ${session.name}
-**Module:** ${session.module || 'General'}
-
-`;
-
-        for (const rec of transcriptionsResult.rows) {
+      // Add new recordings
+      if (newTranscriptionsResult.rows.length > 0) {
+        sessionHasTranscripts = true;
+        for (const rec of newTranscriptionsResult.rows) {
           const recordedTime = new Date(rec.created_at).toISOString().replace('T', ' ').substring(0, 19);
-          combinedTranscript += `### Recording ${(rec.chunk_index || 0) + 1}
+          sessionTranscriptContent += `### Recording ${(rec.chunk_index || 0) + 1}
 **Recorded:** ${recordedTime}
 
 ${rec.transcription}
 
 `;
         }
+      }
+
+      // Add legacy recordings
+      if (legacyTranscriptionsResult.rows.length > 0) {
+        sessionHasTranscripts = true;
+        if (newTranscriptionsResult.rows.length > 0) {
+          sessionTranscriptContent += `### Legacy Recordings (Question-based mode)\n\n`;
+        }
+
+        let legacyIndex = 1;
+        for (const rec of legacyTranscriptionsResult.rows) {
+          const recordedTime = new Date(rec.created_at).toISOString().replace('T', ' ').substring(0, 19);
+          sessionTranscriptContent += `### Answer Recording ${legacyIndex}
+**Recorded:** ${recordedTime}
+**Question:** ${rec.question_text || 'N/A'}
+
+${rec.transcription}
+
+`;
+          legacyIndex++;
+        }
+      }
+
+      if (sessionHasTranscripts) {
+        combinedTranscript += `
+---
+
+## Session: ${session.name}
+**Module:** ${session.module || 'General'}
+
+${sessionTranscriptContent}`;
       }
     }
 

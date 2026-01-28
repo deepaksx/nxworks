@@ -696,8 +696,13 @@ Password: ${shareData.password}`;
       }
 
       // Show success message
-      const { sessionsProcessed, totalRecordings, transcribedRecordings, newlyTranscribed } = response.data;
-      alert(`Transcript generated!\n\nSessions: ${sessionsProcessed}\nTotal recordings: ${totalRecordings}\nTranscribed: ${transcribedRecordings}\nNewly transcribed: ${newlyTranscribed}`);
+      const { sessionsProcessed, totalRecordings, transcribedRecordings, newlyTranscribed, legacyRecordings } = response.data;
+      let message = `Transcript generated!\n\nSessions: ${sessionsProcessed}\nTotal recordings: ${totalRecordings}`;
+      if (legacyRecordings > 0) {
+        message += `\n  (${legacyRecordings} legacy, ${totalRecordings - legacyRecordings} new)`;
+      }
+      message += `\nTranscribed: ${transcribedRecordings}\nNewly transcribed: ${newlyTranscribed}`;
+      alert(message);
     } catch (error) {
       console.error('Failed to generate transcript:', error);
       alert('Failed to generate transcript: ' + (error.response?.data?.error || error.message));
