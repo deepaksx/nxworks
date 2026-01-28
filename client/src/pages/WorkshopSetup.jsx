@@ -32,7 +32,8 @@ import {
   Share2,
   Copy,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  FileText
 } from 'lucide-react';
 import axios from 'axios';
 import CriticalConfirmDialog from '../components/CriticalConfirmDialog';
@@ -177,6 +178,10 @@ function WorkshopSetup() {
     token: ''
   });
   const [copySuccess, setCopySuccess] = useState('');
+
+  // Transcript generation state
+  const [generatingTranscript, setGeneratingTranscript] = useState(false);
+  const [transcriptResult, setTranscriptResult] = useState(null);
 
   // Check if any session has existing questions
   const hasExistingQuestions = sessions.some(s => s.questions_generated);
@@ -668,6 +673,39 @@ Password: ${shareData.password}`;
     await copyToClipboard(text, 'all');
   };
 
+  // Generate combined transcript for all sessions
+  const handleGenerateTranscript = async () => {
+    setGeneratingTranscript(true);
+    setTranscriptResult(null);
+
+    try {
+      const response = await axios.post(`/api/session-checklist/workshop/${workshopId}/generate-transcript`);
+      setTranscriptResult(response.data);
+
+      // Download the transcript
+      if (response.data.transcript) {
+        const blob = new Blob([response.data.transcript], { type: 'text/markdown' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${workshop.name.replace(/[^a-z0-9]/gi, '-')}-transcript.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }
+
+      // Show success message
+      const { sessionsProcessed, totalRecordings, transcribedRecordings, newlyTranscribed } = response.data;
+      alert(`Transcript generated!\n\nSessions: ${sessionsProcessed}\nTotal recordings: ${totalRecordings}\nTranscribed: ${transcribedRecordings}\nNewly transcribed: ${newlyTranscribed}`);
+    } catch (error) {
+      console.error('Failed to generate transcript:', error);
+      alert('Failed to generate transcript: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setGeneratingTranscript(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -1051,6 +1089,15 @@ Password: ${shareData.password}`;
             >
               {generatingChecklist ? <Loader2 className="w-4 h-4 animate-spin" /> : <List className="w-4 h-4" />}
               <span>{generatingChecklist ? 'Generating...' : hasExistingChecklists ? 'Regenerate Checklist' : 'Generate Checklist'}</span>
+            </button>
+            <button
+              onClick={handleGenerateTranscript}
+              disabled={generatingTranscript || sessions.length === 0}
+              title="Generate a combined transcript from all session recordings"
+              className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-lg hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 text-sm font-medium"
+            >
+              {generatingTranscript ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              <span>{generatingTranscript ? 'Generating...' : 'Generate Transcript'}</span>
             </button>
           </div>
         </div>

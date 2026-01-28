@@ -1109,4 +1109,294 @@ router.post('/session/:sessionId/reanalyze', async (req, res) => {
   }
 });
 
+// ============================================
+// Generate combined transcript for entire workshop
+// ============================================
+router.post('/workshop/:workshopId/generate-transcript', async (req, res) => {
+  try {
+    const { workshopId } = req.params;
+
+    // Get workshop info
+    const workshopResult = await db.query(
+      'SELECT id, name, client_name, mission_statement FROM workshops WHERE id = $1',
+      [workshopId]
+    );
+
+    if (workshopResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Workshop not found' });
+    }
+
+    const workshop = workshopResult.rows[0];
+
+    // Get all sessions for this workshop
+    const sessionsResult = await db.query(
+      'SELECT id, name, module FROM sessions WHERE workshop_id = $1 ORDER BY id',
+      [workshopId]
+    );
+
+    if (sessionsResult.rows.length === 0) {
+      return res.status(400).json({ error: 'No sessions found for this workshop' });
+    }
+
+    const sessions = sessionsResult.rows;
+    const results = {
+      workshop: workshop.name,
+      sessionsProcessed: 0,
+      totalRecordings: 0,
+      transcribedRecordings: 0,
+      newlyTranscribed: 0,
+      errors: [],
+      sessions: []
+    };
+
+    // Process each session
+    for (const session of sessions) {
+      const sessionResult = {
+        id: session.id,
+        name: session.name,
+        module: session.module,
+        recordingsCount: 0,
+        transcribedCount: 0,
+        newlyTranscribedCount: 0,
+        errors: []
+      };
+
+      // Get all recordings for this session
+      const recordingsResult = await db.query(
+        'SELECT * FROM session_recordings WHERE session_id = $1 ORDER BY chunk_index, created_at',
+        [session.id]
+      );
+
+      sessionResult.recordingsCount = recordingsResult.rows.length;
+      results.totalRecordings += recordingsResult.rows.length;
+
+      // Process each recording
+      for (const recording of recordingsResult.rows) {
+        // Check if already transcribed
+        if (recording.transcription) {
+          sessionResult.transcribedCount++;
+          results.transcribedRecordings++;
+          continue;
+        }
+
+        // Transcribe the audio
+        try {
+          let filePath = recording.file_path;
+          let tempFile = null;
+
+          // Handle S3 files
+          if (filePath.startsWith('uploads/') && isS3Configured()) {
+            const { GetObjectCommand } = require('@aws-sdk/client-s3');
+            const { getS3Client, getBucketName } = require('../services/s3');
+
+            const s3Client = getS3Client();
+            const response = await s3Client.send(new GetObjectCommand({
+              Bucket: getBucketName(),
+              Key: filePath
+            }));
+
+            // Save to temp file
+            tempFile = path.join('/tmp', `transcribe_${recording.id}.webm`);
+            const writeStream = fs.createWriteStream(tempFile);
+            await new Promise((resolve, reject) => {
+              response.Body.pipe(writeStream);
+              response.Body.on('end', resolve);
+              response.Body.on('error', reject);
+            });
+            filePath = tempFile;
+          } else if (!path.isAbsolute(filePath)) {
+            filePath = path.join(__dirname, '../..', filePath);
+          }
+
+          // Verify file exists
+          if (!fs.existsSync(filePath)) {
+            throw new Error(`Audio file not found: ${recording.file_path}`);
+          }
+
+          const fileStats = fs.statSync(filePath);
+          if (fileStats.size === 0) {
+            throw new Error('Audio file is empty');
+          }
+
+          console.log(`Transcribing recording ${recording.id} for session ${session.name}`);
+
+          // Transcribe with OpenAI Whisper
+          const transcription = await openai.audio.transcriptions.create({
+            file: fs.createReadStream(filePath),
+            model: 'whisper-1',
+            language: 'en',
+            response_format: 'text'
+          });
+
+          // Clean up temp file
+          if (tempFile && fs.existsSync(tempFile)) {
+            fs.unlinkSync(tempFile);
+          }
+
+          // Save transcription to database
+          await db.query(
+            'UPDATE session_recordings SET transcription = $1 WHERE id = $2',
+            [transcription, recording.id]
+          );
+
+          // Append to session transcript file
+          try {
+            await appendTranscript(session.id, recording.chunk_index || 0, transcription);
+          } catch (transcriptError) {
+            console.error('Error appending to transcript file:', transcriptError);
+          }
+
+          sessionResult.transcribedCount++;
+          sessionResult.newlyTranscribedCount++;
+          results.transcribedRecordings++;
+          results.newlyTranscribed++;
+
+        } catch (transcribeError) {
+          console.error(`Error transcribing recording ${recording.id}:`, transcribeError);
+          sessionResult.errors.push({
+            recordingId: recording.id,
+            error: transcribeError.message
+          });
+          results.errors.push({
+            sessionId: session.id,
+            sessionName: session.name,
+            recordingId: recording.id,
+            error: transcribeError.message
+          });
+        }
+      }
+
+      results.sessions.push(sessionResult);
+      results.sessionsProcessed++;
+    }
+
+    // Generate combined transcript document
+    const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    let combinedTranscript = `# Workshop Transcript
+
+**Workshop:** ${workshop.name}
+**Client:** ${workshop.client_name || 'Not specified'}
+**Generated:** ${now}
+
+**Mission Statement:**
+${workshop.mission_statement || 'Not specified'}
+
+---
+
+# Sessions
+
+`;
+
+    // Add each session's transcripts
+    for (const session of sessions) {
+      // Get all transcriptions for this session
+      const transcriptionsResult = await db.query(`
+        SELECT transcription, chunk_index, created_at
+        FROM session_recordings
+        WHERE session_id = $1 AND transcription IS NOT NULL
+        ORDER BY chunk_index, created_at
+      `, [session.id]);
+
+      if (transcriptionsResult.rows.length > 0) {
+        combinedTranscript += `
+---
+
+## Session: ${session.name}
+**Module:** ${session.module || 'General'}
+
+`;
+
+        for (const rec of transcriptionsResult.rows) {
+          const recordedTime = new Date(rec.created_at).toISOString().replace('T', ' ').substring(0, 19);
+          combinedTranscript += `### Recording ${(rec.chunk_index || 0) + 1}
+**Recorded:** ${recordedTime}
+
+${rec.transcription}
+
+`;
+        }
+      }
+    }
+
+    // Save combined transcript
+    const transcriptFileName = `workshop-${workshopId}-combined-transcript.md`;
+    const transcriptDir = path.join(__dirname, '../../uploads/transcripts');
+
+    if (!fs.existsSync(transcriptDir)) {
+      fs.mkdirSync(transcriptDir, { recursive: true });
+    }
+
+    const transcriptPath = path.join(transcriptDir, transcriptFileName);
+
+    if (isS3Configured()) {
+      const s3Key = `uploads/transcripts/${transcriptFileName}`;
+      await uploadBufferToS3(Buffer.from(combinedTranscript, 'utf-8'), s3Key, 'text/markdown');
+      results.transcriptPath = s3Key;
+    } else {
+      fs.writeFileSync(transcriptPath, combinedTranscript, 'utf-8');
+      results.transcriptPath = transcriptPath;
+    }
+
+    results.transcript = combinedTranscript;
+
+    res.json(results);
+  } catch (error) {
+    console.error('Error generating workshop transcript:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Download combined workshop transcript
+// ============================================
+router.get('/workshop/:workshopId/transcript/download', async (req, res) => {
+  try {
+    const { workshopId } = req.params;
+
+    // Get workshop info
+    const workshopResult = await db.query(
+      'SELECT name FROM workshops WHERE id = $1',
+      [workshopId]
+    );
+
+    if (workshopResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Workshop not found' });
+    }
+
+    const workshopName = workshopResult.rows[0].name;
+    const transcriptFileName = `workshop-${workshopId}-combined-transcript.md`;
+
+    // Check if file exists
+    if (isS3Configured()) {
+      const s3Key = `uploads/transcripts/${transcriptFileName}`;
+      try {
+        const { getFileFromS3 } = require('../services/s3');
+        const buffer = await getFileFromS3(s3Key);
+        const fileName = `${workshopName.replace(/[^a-z0-9]/gi, '-')}-transcript.md`;
+        res.setHeader('Content-Type', 'text/markdown');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        res.send(buffer.toString('utf-8'));
+      } catch (s3Error) {
+        return res.status(404).json({ error: 'Combined transcript not found. Generate it first.' });
+      }
+    } else {
+      const transcriptDir = path.join(__dirname, '../../uploads/transcripts');
+      const transcriptPath = path.join(transcriptDir, transcriptFileName);
+
+      if (!fs.existsSync(transcriptPath)) {
+        return res.status(404).json({ error: 'Combined transcript not found. Generate it first.' });
+      }
+
+      const content = fs.readFileSync(transcriptPath, 'utf-8');
+      const fileName = `${workshopName.replace(/[^a-z0-9]/gi, '-')}-transcript.md`;
+      res.setHeader('Content-Type', 'text/markdown');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.send(content);
+    }
+  } catch (error) {
+    console.error('Error downloading workshop transcript:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
